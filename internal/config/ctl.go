@@ -34,10 +34,20 @@ func LoadCtl(path string) (*CtlConfig, error) {
 	v.SetDefault("refresh_interval", "2s")
 
 	if path == "" {
+		// Search order: env-provided path already handled by caller; then user config,
+		// then system-wide install path (matches wireguardd install layout).
+		cands := []string{}
 		if home, err := os.UserHomeDir(); err == nil {
-			cand := filepath.Join(home, ".config", "wireguardctl", "config.yaml")
+			cands = append(cands, filepath.Join(home, ".config", "wireguardctl", "config.yaml"))
+		}
+		cands = append(cands,
+			"/etc/wireguardctl/config.yaml",
+			"/etc/wireguardd/wireguardctl.yaml",
+		)
+		for _, cand := range cands {
 			if _, err := os.Stat(cand); err == nil {
 				path = cand
+				break
 			}
 		}
 	}
