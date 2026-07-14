@@ -71,8 +71,10 @@ export WIREGUARDCTL_URL=http://127.0.0.1:51880
 ./bin/wireguardctl peer client-config wg0 <PUB>
 ./bin/wireguardctl stats
 
-# TUI
+# Full TUI control panel
 ./bin/wireguardctl --config configs/wireguardctl.example.yaml
+# Tabs: Interfaces · Peers · Stats · Events · Keys
+# n create · enter detail · e edit · s suspend · c client-conf · D delete
 ```
 
 ## Configuration
