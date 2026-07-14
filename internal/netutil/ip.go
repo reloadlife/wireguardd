@@ -102,14 +102,11 @@ func NormalizeHostIP(s string) (string, error) {
 		return "", fmt.Errorf("empty")
 	}
 	if strings.Contains(s, "/") {
-		ip, ipnet, err := net.ParseCIDR(s)
+		ip, _, err := net.ParseCIDR(s)
 		if err != nil {
 			return "", err
 		}
-		ones, bits := ipnet.Mask.Size()
-		if ones != bits {
-			// still use the IP part as host identity
-		}
+		// Use the IP part as host identity even if the mask is not host-sized.
 		return ip.String(), nil
 	}
 	ip := net.ParseIP(s)

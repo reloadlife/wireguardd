@@ -299,7 +299,7 @@ func extractBinary(archivePath, binaryName, destDir string) (string, error) {
 		if base != binaryName {
 			continue
 		}
-		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
 		out := filepath.Join(destDir, binaryName)

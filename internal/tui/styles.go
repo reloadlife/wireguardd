@@ -44,5 +44,4 @@ var (
 	badgeDown   = lipgloss.NewStyle().Foreground(cText).Background(cDownBg).Padding(0, 1)
 	badgeSusp   = lipgloss.NewStyle().Foreground(cBadgeFg).Background(cSuspBg).Padding(0, 1).Bold(true)
 	badgeConn   = lipgloss.NewStyle().Foreground(cBadgeFg).Background(cConnBg).Padding(0, 1).Bold(true)
-	appStyle    = lipgloss.NewStyle().Foreground(cText)
 )
