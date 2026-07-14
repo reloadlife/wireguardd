@@ -11,6 +11,7 @@ import (
 
 	"github.com/reloadlife/wireguardd/internal/config"
 	"github.com/reloadlife/wireguardd/internal/tui"
+	"github.com/reloadlife/wireguardd/internal/update"
 	"github.com/reloadlife/wireguardd/internal/version"
 	pkgapi "github.com/reloadlife/wireguardd/pkg/api"
 )
@@ -27,6 +28,7 @@ func main() {
 	root.PersistentFlags().StringVar(&configPath, "config", "", "path to config file")
 	root.AddCommand(
 		versionCmd(),
+		updateCmd(),
 		ifaceCmd(&configPath),
 		peerCmd(&configPath),
 		statsCmd(&configPath),
@@ -49,6 +51,58 @@ func versionCmd() *cobra.Command {
 			fmt.Println(version.String())
 		},
 	}
+}
+
+func updateCmd() *cobra.Command {
+	var check, force bool
+	var repo string
+	cmd := &cobra.Command{
+		Use:   "update",
+		Short: "Update wireguardctl from GitHub Releases",
+		Long: `Downloads the latest release for this OS/arch and replaces this binary.
+
+  wireguardctl update --check
+  sudo wireguardctl update
+
+Optional: GITHUB_TOKEN / GH_TOKEN for private repos or API rate limits.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := update.Options{
+				Repo:      repo,
+				Component: update.ComponentCtl,
+				Current:   version.Version,
+				CheckOnly: check,
+				Force:     force,
+			}
+			ctx := context.Background()
+			if check {
+				res, err := update.Check(ctx, opts)
+				if err != nil {
+					return err
+				}
+				fmt.Printf("current: %s\nlatest:  %s\n", res.Current, res.Latest)
+				if res.UpToDate {
+					fmt.Println("already up to date")
+				} else {
+					fmt.Println("update available — run: sudo wireguardctl update")
+				}
+				return nil
+			}
+			res, err := update.Apply(ctx, opts)
+			if err != nil {
+				return err
+			}
+			if res.Installed == "" {
+				fmt.Printf("already up to date (%s)\n", res.Latest)
+				return nil
+			}
+			fmt.Printf("updated to %s → %s\n", res.Latest, res.Installed)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&check, "check", false, "only check for updates")
+	cmd.Flags().BoolVar(&force, "force", false, "reinstall even if versions match")
+	cmd.Flags().StringVar(&repo, "repo", update.DefaultRepo, "GitHub repository owner/name")
+	return cmd
 }
 
 func tuiCmd(configPath *string) *cobra.Command {

@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
 # wireguardd / wireguardctl installer
 #
-# From GitHub releases (Linux/macOS):
+# Public install (Linux/macOS):
 #   curl -fsSL https://raw.githubusercontent.com/reloadlife/wireguardd/main/scripts/install.sh | sudo bash
-#
-# Private repo (needs token for raw + assets):
-#   curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
-#     https://raw.githubusercontent.com/reloadlife/wireguardd/main/scripts/install.sh \
-#     | sudo -E env GITHUB_TOKEN="$GITHUB_TOKEN" bash
 #
 # Local build tree:
 #   make build && sudo ./scripts/install.sh --local
@@ -20,7 +15,7 @@
 #   --ctl-only                         install only wireguardctl
 #   --daemon-only                      install only wireguardd (Linux)
 #   --local                            use ./bin from repo checkout
-#   GITHUB_TOKEN / GH_TOKEN            auth for private releases
+#   GITHUB_TOKEN / GH_TOKEN            optional (private fork / rate limits)
 #   REPO=owner/name                    override repo (default: reloadlife/wireguardd)
 set -euo pipefail
 
@@ -317,8 +312,11 @@ if command -v wireguardctl >/dev/null 2>&1; then
 fi
 echo
 echo "Next steps (Linux daemon):"
-echo "  1. Edit /etc/wireguardd/config.yaml  (set auth.token)"
-echo "  2. sudo systemctl enable --now wireguardd"
-echo "  3. wireguardctl iface list"
+echo "  1. Edit /etc/wireguardd/config.yaml  (set a strong auth.token)"
+echo "  2. Write /etc/wireguardctl/config.yaml with the same token + url"
+echo "  3. sudo systemctl enable --now wireguardd"
+echo "  4. wireguardctl iface list"
+echo "  5. wireguardctl adopt   # if WireGuard is already running"
 echo
+echo "Update later:  sudo wireguardd update && sudo wireguardctl update"
 echo "Docs: https://github.com/${REPO}#readme"

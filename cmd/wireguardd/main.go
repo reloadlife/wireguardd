@@ -11,6 +11,7 @@ import (
 
 	"github.com/reloadlife/wireguardd/internal/config"
 	"github.com/reloadlife/wireguardd/internal/daemon"
+	"github.com/reloadlife/wireguardd/internal/update"
 	"github.com/reloadlife/wireguardd/internal/version"
 )
 
@@ -19,7 +20,7 @@ func main() {
 		Use:   "wireguardd",
 		Short: "WireGuard management daemon",
 	}
-	root.AddCommand(versionCmd(), runCmd())
+	root.AddCommand(versionCmd(), runCmd(), updateCmd())
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
@@ -51,6 +52,62 @@ func runCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "path to config file")
+	return cmd
+}
+
+func updateCmd() *cobra.Command {
+	var check, force bool
+	var repo string
+	cmd := &cobra.Command{
+		Use:   "update",
+		Short: "Update wireguardd from GitHub Releases",
+		Long: `Downloads the latest release binary for this OS/arch and replaces the
+installed executable. Prefer stopping the service first:
+
+  sudo systemctl stop wireguardd
+  sudo wireguardd update
+  sudo systemctl start wireguardd
+
+Environment: GITHUB_TOKEN / GH_TOKEN for private repos or higher rate limits.
+REPO override: --repo owner/name`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := update.Options{
+				Repo:      repo,
+				Component: update.ComponentDaemon,
+				Current:   version.Version,
+				CheckOnly: check,
+				Force:     force,
+			}
+			ctx := context.Background()
+			if check {
+				res, err := update.Check(ctx, opts)
+				if err != nil {
+					return err
+				}
+				fmt.Printf("current: %s\nlatest:  %s\n", res.Current, res.Latest)
+				if res.UpToDate {
+					fmt.Println("already up to date")
+				} else {
+					fmt.Println("update available — run: sudo wireguardd update")
+				}
+				return nil
+			}
+			res, err := update.Apply(ctx, opts)
+			if err != nil {
+				return err
+			}
+			if res.Installed == "" {
+				fmt.Printf("already up to date (%s)\n", res.Latest)
+				return nil
+			}
+			fmt.Printf("updated to %s → %s\n", res.Latest, res.Installed)
+			fmt.Println("restart the service: sudo systemctl restart wireguardd")
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&check, "check", false, "only check for updates")
+	cmd.Flags().BoolVar(&force, "force", false, "reinstall even if versions match")
+	cmd.Flags().StringVar(&repo, "repo", update.DefaultRepo, "GitHub repository owner/name")
 	return cmd
 }
 

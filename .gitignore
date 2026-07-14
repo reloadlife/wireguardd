@@ -26,13 +26,20 @@ coverage.html
 /run/
 /var/
 
-# Secrets / local config
+# Secrets / local config (never commit real tokens/keys)
 configs/local*.yaml
+configs/*local*.yaml
+*.pem
+*.key
 .env
 .env.*
+.envrc
 
 # Go
 vendor/
 
-# Agents (local)
+# Agents / editor local (never public)
 .agents/
+.claude/
+.codex/
+.cursor/

@@ -1,8 +1,11 @@
 openapi: 3.0.3
 info:
   title: wireguardd API
-  version: 0.1.0
-  description: REST API for WireGuard interface and peer management.
+  version: 0.8.0
+  description: |
+    REST API for WireGuard interface and peer management.
+    All `/v1/*` routes require `Authorization: Bearer <token>`.
+    See docs/API.md for the full route list.
 servers:
   - url: http://127.0.0.1:51880
 security:
@@ -18,7 +21,7 @@ paths:
   /readyz:
     get:
       security: []
-      summary: Readiness
+      summary: Readiness (database)
       responses:
         "200":
           description: Ready
@@ -28,6 +31,38 @@ paths:
       responses:
         "200":
           description: Version info
+  /v1/discover:
+    get:
+      summary: Preview live host WireGuard devices
+      parameters:
+        - name: name
+          in: query
+          schema:
+            type: string
+          description: Optional interface name filter (repeatable)
+      responses:
+        "200":
+          description: Adopt preview report
+  /v1/adopt:
+    post:
+      summary: Import live WireGuard into the database (non-destructive)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                names:
+                  type: array
+                  items:
+                    type: string
+                read_conf:
+                  type: boolean
+                overwrite:
+                  type: boolean
+      responses:
+        "200":
+          description: Adopt report
   /v1/interfaces:
     get:
       summary: List interfaces
@@ -36,12 +71,6 @@ paths:
           description: Interface list
     post:
       summary: Create interface
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/InterfaceCreateRequest"
       responses:
         "201":
           description: Created
@@ -63,22 +92,6 @@ paths:
       responses:
         "204":
           description: Deleted
-  /v1/interfaces/{name}/up:
-    parameters:
-      - $ref: "#/components/parameters/Name"
-    post:
-      summary: Bring interface up
-      responses:
-        "200":
-          description: Up
-  /v1/interfaces/{name}/down:
-    parameters:
-      - $ref: "#/components/parameters/Name"
-    post:
-      summary: Bring interface down
-      responses:
-        "200":
-          description: Down
   /v1/interfaces/{name}/peers:
     parameters:
       - $ref: "#/components/parameters/Name"
@@ -86,16 +99,16 @@ paths:
       summary: List peers
       responses:
         "200":
-          description: Peers
+          description: Peer list
     post:
-      summary: Create peer
+      summary: Create peer (auto-allocates IP if allowed/assigned empty)
       responses:
         "201":
           description: Created
   /v1/interfaces/{name}/peers/{pubkey}:
     parameters:
       - $ref: "#/components/parameters/Name"
-      - $ref: "#/components/parameters/PubKey"
+      - $ref: "#/components/parameters/Pubkey"
     get:
       summary: Get peer
       responses:
@@ -111,55 +124,59 @@ paths:
       responses:
         "204":
           description: Deleted
-  /v1/interfaces/{name}/peers/{pubkey}/suspend:
-    post:
-      parameters:
-        - $ref: "#/components/parameters/Name"
-        - $ref: "#/components/parameters/PubKey"
-      summary: Suspend peer
+  /v1/interfaces/{name}/peers/{pubkey}/client-config:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+      - $ref: "#/components/parameters/Pubkey"
+    get:
+      summary: Client wg-quick conf (requires client_private_key)
       responses:
         "200":
-          description: Suspended
-  /v1/interfaces/{name}/peers/{pubkey}/resume:
+          description: Config text
+  /v1/interfaces/{name}/peers/{pubkey}/issue-client-key:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+      - $ref: "#/components/parameters/Pubkey"
     post:
-      parameters:
-        - $ref: "#/components/parameters/Name"
-        - $ref: "#/components/parameters/PubKey"
-      summary: Resume peer
+      summary: Issue or rotate client private key + conf
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rotate:
+                  type: boolean
       responses:
         "200":
-          description: Resumed
+          description: Key + config
+  /v1/interfaces/{name}/peers/{pubkey}/qr:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+      - $ref: "#/components/parameters/Pubkey"
+    get:
+      summary: Client conf as PNG QR
+      responses:
+        "200":
+          description: PNG image
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
   /v1/stats:
     get:
-      summary: Global stats
+      summary: Global stats rollup
       responses:
         "200":
           description: Stats
-  /v1/keys/generate:
-    post:
-      summary: Generate keys
-      responses:
-        "200":
-          description: Keys
-  /v1/events:
-    get:
-      summary: Events
-      responses:
-        "200":
-          description: Events
-  /v1/reconcile:
-    post:
-      summary: Force reconcile
-      responses:
-        "200":
-          description: OK
   /metrics:
     get:
       security: []
       summary: Prometheus metrics
       responses:
         "200":
-          description: Metrics
+          description: Text exposition format
 components:
   securitySchemes:
     bearerAuth:
@@ -172,26 +189,10 @@ components:
       required: true
       schema:
         type: string
-    PubKey:
+    Pubkey:
       name: pubkey
       in: path
       required: true
+      description: WireGuard public key (URL-safe base64 OK)
       schema:
         type: string
-  schemas:
-    InterfaceCreateRequest:
-      type: object
-      required: [name]
-      properties:
-        name:
-          type: string
-        listen_port:
-          type: integer
-        addresses:
-          type: array
-          items:
-            type: string
-        dns:
-          type: array
-          items:
-            type: string

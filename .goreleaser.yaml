@@ -110,6 +110,14 @@ release:
     sudo install -m 0755 wireguardctl /usr/local/bin/
     ```
 
+    ## Self-update (after install)
+
+    ```bash
+    wireguardctl update --check
+    sudo wireguardctl update
+    sudo systemctl stop wireguardd && sudo wireguardd update && sudo systemctl start wireguardd
+    ```
+
     ## Checksums
 
     Verify downloads with `checksums.txt` (SHA-256).

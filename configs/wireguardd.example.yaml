@@ -1,7 +1,7 @@
 listen:
   http: "127.0.0.1:51880"
   # unix: "/run/wireguardd/wireguardd.sock"
-  metrics: "0.0.0.0:9091"
+  metrics: "127.0.0.1:9091"
 
 snmp:
   enabled: true
