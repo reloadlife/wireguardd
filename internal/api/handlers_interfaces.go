@@ -14,6 +14,7 @@ import (
 	"github.com/reloadlife/wireguardd/internal/confparse"
 	"github.com/reloadlife/wireguardd/internal/crypto"
 	"github.com/reloadlife/wireguardd/internal/db"
+	"github.com/reloadlife/wireguardd/internal/netutil"
 	pkgapi "github.com/reloadlife/wireguardd/pkg/api"
 )
 
@@ -54,6 +55,20 @@ func (s *Server) handleCreateInterface(w http.ResponseWriter, r *http.Request) {
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "validation", "name is required")
 		return
+	}
+	if req.ListenPort < 0 || req.ListenPort > 65535 {
+		writeError(w, http.StatusBadRequest, "validation", "listen_port must be 0-65535")
+		return
+	}
+	if err := netutil.ValidateCIDRList(req.Addresses); err != nil {
+		writeError(w, http.StatusBadRequest, "validation", "addresses: "+err.Error())
+		return
+	}
+	if req.PublicEndpoint != "" {
+		if err := netutil.ValidateEndpoint(req.PublicEndpoint); err != nil {
+			writeError(w, http.StatusBadRequest, "validation", err.Error())
+			return
+		}
 	}
 	if !s.cfg.WireGuard.AllowHooks && (req.PreUp != "" || req.PostUp != "" || req.PreDown != "" || req.PostDown != "") {
 		writeError(w, http.StatusBadRequest, "hooks_disabled", "hooks are disabled; set wireguard.allow_hooks=true")
@@ -134,6 +149,10 @@ func (s *Server) handleUpdateInterface(w http.ResponseWriter, r *http.Request) {
 		iface.PublicKey = pub
 	}
 	if req.ListenPort != nil {
+		if *req.ListenPort < 0 || *req.ListenPort > 65535 {
+			writeError(w, http.StatusBadRequest, "validation", "listen_port must be 0-65535")
+			return
+		}
 		iface.ListenPort = *req.ListenPort
 	}
 	if req.FwMark != nil {
@@ -152,6 +171,10 @@ func (s *Server) handleUpdateInterface(w http.ResponseWriter, r *http.Request) {
 		iface.DNS = req.DNS
 	}
 	if req.Addresses != nil {
+		if err := netutil.ValidateCIDRList(req.Addresses); err != nil {
+			writeError(w, http.StatusBadRequest, "validation", "addresses: "+err.Error())
+			return
+		}
 		iface.Addresses = req.Addresses
 	}
 	if req.PreUp != nil || req.PostUp != nil || req.PreDown != nil || req.PostDown != nil {
@@ -176,6 +199,12 @@ func (s *Server) handleUpdateInterface(w http.ResponseWriter, r *http.Request) {
 		iface.DefaultKeepalive = *req.DefaultKeepalive
 	}
 	if req.PublicEndpoint != nil {
+		if *req.PublicEndpoint != "" {
+			if err := netutil.ValidateEndpoint(*req.PublicEndpoint); err != nil {
+				writeError(w, http.StatusBadRequest, "validation", err.Error())
+				return
+			}
+		}
 		iface.PublicEndpoint = *req.PublicEndpoint
 	}
 	if req.Enabled != nil {

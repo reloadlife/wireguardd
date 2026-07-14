@@ -21,7 +21,8 @@ func Run(cfg Config) error {
 		cfg.RefreshInterval = 2 * time.Second
 	}
 	m := newRootModel(cfg)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	// Full terminal: alt screen + mouse wheel for lists.
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
 }

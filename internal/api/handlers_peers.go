@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/reloadlife/wireguardd/internal/confparse"
 	"github.com/reloadlife/wireguardd/internal/crypto"
 	"github.com/reloadlife/wireguardd/internal/db"
+	"github.com/reloadlife/wireguardd/internal/netutil"
 	pkgapi "github.com/reloadlife/wireguardd/pkg/api"
 	"github.com/reloadlife/wireguardd/pkg/wgutil"
 )
@@ -119,6 +121,32 @@ func (s *Server) handleCreatePeer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation", "public_key is required (or generate_client_key)")
 		return
 	}
+	// Auto-allocate tunnel IP when neither allowed nor assigned IPs provided.
+	allowed := req.AllowedIPs
+	assigned := req.AssignedIPs
+	if len(allowed) == 0 && len(assigned) == 0 {
+		host, cidr, aerr := s.allocatePeerIP(r.Context(), name, iface, 0)
+		if aerr != nil {
+			writeError(w, http.StatusBadRequest, "validation", "ip auto-allocate: "+aerr.Error())
+			return
+		}
+		assigned = []string{host}
+		allowed = []string{cidr}
+	}
+	if err := netutil.ValidateCIDRList(allowed); err != nil {
+		writeError(w, http.StatusBadRequest, "validation", "allowed_ips: "+err.Error())
+		return
+	}
+	if err := netutil.ValidateIPOrCIDRList(assigned); err != nil {
+		writeError(w, http.StatusBadRequest, "validation", "assigned_ips: "+err.Error())
+		return
+	}
+	if req.Endpoint != "" {
+		if err := netutil.ValidateEndpoint(req.Endpoint); err != nil {
+			writeError(w, http.StatusBadRequest, "validation", err.Error())
+			return
+		}
+	}
 	ka := req.PersistentKeepalive
 	if ka == 0 && iface.DefaultKeepalive > 0 {
 		ka = iface.DefaultKeepalive
@@ -130,8 +158,8 @@ func (s *Server) handleCreatePeer(w http.ResponseWriter, r *http.Request) {
 		ClientPrivateKey:    clientPriv,
 		Name:                req.Name,
 		Notes:               req.Notes,
-		AllowedIPs:          req.AllowedIPs,
-		AssignedIPs:         req.AssignedIPs,
+		AllowedIPs:          allowed,
+		AssignedIPs:         assigned,
 		Endpoint:            req.Endpoint,
 		PersistentKeepalive: ka,
 		TrafficLimitBytes:   req.TrafficLimitBytes,
@@ -193,12 +221,24 @@ func (s *Server) handleUpdatePeer(w http.ResponseWriter, r *http.Request) {
 		peer.Notes = *req.Notes
 	}
 	if req.AllowedIPs != nil {
+		if err := netutil.ValidateCIDRList(req.AllowedIPs); err != nil {
+			writeError(w, http.StatusBadRequest, "validation", "allowed_ips: "+err.Error())
+			return
+		}
 		peer.AllowedIPs = req.AllowedIPs
 	}
 	if req.AssignedIPs != nil {
+		if err := netutil.ValidateIPOrCIDRList(req.AssignedIPs); err != nil {
+			writeError(w, http.StatusBadRequest, "validation", "assigned_ips: "+err.Error())
+			return
+		}
 		peer.AssignedIPs = req.AssignedIPs
 	}
 	if req.Endpoint != nil {
+		if err := netutil.ValidateEndpoint(*req.Endpoint); err != nil {
+			writeError(w, http.StatusBadRequest, "validation", err.Error())
+			return
+		}
 		peer.Endpoint = *req.Endpoint
 	}
 	if req.PersistentKeepalive != nil {
@@ -505,6 +545,25 @@ func (s *Server) buildClientConfig(r *http.Request, ifaceName, pubkey string) (s
 		}},
 	}
 	return confparse.Render(cfg), nil
+}
+
+// allocatePeerIP finds the next free host IP on an interface.
+// skipPeerID excludes that peer's current addresses (for re-allocation on edit).
+func (s *Server) allocatePeerIP(ctx context.Context, ifaceName string, iface *db.Interface, skipPeerID int64) (assigned, allowed string, err error) {
+	peers, err := s.store.ListPeersByInterface(ctx, ifaceName)
+	if err != nil {
+		return "", "", err
+	}
+	var peerAssigned, peerAllowed [][]string
+	for _, p := range peers {
+		if skipPeerID != 0 && p.ID == skipPeerID {
+			continue
+		}
+		peerAssigned = append(peerAssigned, p.AssignedIPs)
+		peerAllowed = append(peerAllowed, p.AllowedIPs)
+	}
+	used := netutil.CollectUsedHosts(iface.Addresses, peerAssigned, peerAllowed)
+	return netutil.AllocateNextHost(iface.Addresses, used)
 }
 
 func (s *Server) toAPIPeer(p *db.Peer, reveal bool) pkgapi.Peer {

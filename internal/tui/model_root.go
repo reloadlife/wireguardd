@@ -2,11 +2,13 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/reloadlife/wireguardd/internal/netutil"
 	pkgapi "github.com/reloadlife/wireguardd/pkg/api"
 	"github.com/reloadlife/wireguardd/pkg/wgutil"
 )
@@ -112,6 +114,9 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.mode == modeIfaceForm || m.mode == modePeerForm {
+			m.form.SetWidth(msg.Width)
+		}
 		return m, nil
 
 	case tickMsg:
@@ -321,6 +326,17 @@ func (m rootModel) handleFormKeyAll(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m rootModel) submitIfaceForm() (tea.Model, tea.Cmd) {
 	v := m.form.Values()
+	addrs := splitCSV(v["addresses"])
+	if err := netutil.ValidateCIDRList(addrs); err != nil {
+		m.form.err = "addresses: " + err.Error()
+		return m, nil
+	}
+	if ep := v["public_endpoint"]; ep != "" {
+		if err := netutil.ValidateEndpoint(ep); err != nil {
+			m.form.err = err.Error()
+			return m, nil
+		}
+	}
 	if m.formCreate {
 		name := v["name"]
 		if name == "" {
@@ -328,8 +344,8 @@ func (m rootModel) submitIfaceForm() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		port, err := parseIntField(v["port"])
-		if err != nil {
-			m.form.err = "invalid port"
+		if err != nil || port < 0 || port > 65535 {
+			m.form.err = "invalid port (0-65535)"
 			return m, nil
 		}
 		if port == 0 {
@@ -341,7 +357,7 @@ func (m rootModel) submitIfaceForm() (tea.Model, tea.Cmd) {
 		req := pkgapi.InterfaceCreateRequest{
 			Name:           name,
 			ListenPort:     port,
-			Addresses:      splitCSV(v["addresses"]),
+			Addresses:      addrs,
 			DNS:            splitCSV(v["dns"]),
 			MTU:            mtu,
 			TableMode:      tm,
@@ -353,8 +369,8 @@ func (m rootModel) submitIfaceForm() (tea.Model, tea.Cmd) {
 	}
 	// edit
 	port, err := parseIntField(v["port"])
-	if err != nil {
-		m.form.err = "invalid port"
+	if err != nil || port < 0 || port > 65535 {
+		m.form.err = "invalid port (0-65535)"
 		return m, nil
 	}
 	mtu, _ := parseIntField(v["mtu"])
@@ -362,7 +378,7 @@ func (m rootModel) submitIfaceForm() (tea.Model, tea.Cmd) {
 	tm, tid := parseTableFields(v["table"], v["table_id"])
 	req := pkgapi.InterfaceUpdateRequest{
 		ListenPort:     &port,
-		Addresses:      splitCSV(v["addresses"]),
+		Addresses:      addrs,
 		DNS:            splitCSV(v["dns"]),
 		TableMode:      &tm,
 		TableID:        tid,
@@ -403,8 +419,19 @@ func (m rootModel) submitPeerForm() (tea.Model, tea.Cmd) {
 	if m.formCreate {
 		iface := v["iface"]
 		if iface == "" {
-			m.form.err = "interface is required"
+			m.form.err = "interface is required — create an interface first"
 			return m, nil
+		}
+		allowed, assigned, err := m.resolvePeerIPs(iface, v)
+		if err != nil {
+			m.form.err = err.Error()
+			return m, nil
+		}
+		if ep := v["endpoint"]; ep != "" {
+			if err := netutil.ValidateEndpoint(ep); err != nil {
+				m.form.err = err.Error()
+				return m, nil
+			}
 		}
 		ka, _ := parseIntField(v["keepalive"])
 		tl, _ := parseInt64Field(v["traffic_limit"])
@@ -413,8 +440,8 @@ func (m rootModel) submitPeerForm() (tea.Model, tea.Cmd) {
 		req := pkgapi.PeerCreateRequest{
 			PublicKey:           v["pubkey"],
 			Name:                v["name"],
-			AllowedIPs:          splitCSV(v["allowed_ips"]),
-			AssignedIPs:         splitCSV(v["assigned_ips"]),
+			AllowedIPs:          allowed,
+			AssignedIPs:         assigned,
 			Endpoint:            v["endpoint"],
 			PersistentKeepalive: ka,
 			GeneratePSK:         truthy(v["gen_psk"]),
@@ -424,20 +451,31 @@ func (m rootModel) submitPeerForm() (tea.Model, tea.Cmd) {
 			BandwidthTxBps:      tx,
 		}
 		if req.PublicKey == "" && !req.GenerateClientKey {
-			m.form.err = "public key required (or gen client key = y)"
+			m.form.err = "public key required (or set Gen client key = yes)"
 			return m, nil
 		}
 		return m.startMutate(doCreatePeer(m.cfg.Client, iface, req))
 	}
 	// edit
+	allowed, assigned, err := m.resolvePeerIPs(m.editIface, v)
+	if err != nil {
+		m.form.err = err.Error()
+		return m, nil
+	}
+	if ep := v["endpoint"]; ep != "" {
+		if err := netutil.ValidateEndpoint(ep); err != nil {
+			m.form.err = err.Error()
+			return m, nil
+		}
+	}
 	ka, _ := parseIntField(v["keepalive"])
 	tl, _ := parseInt64Field(v["traffic_limit"])
 	rx, _ := parseInt64Field(v["bw_rx"])
 	tx, _ := parseInt64Field(v["bw_tx"])
 	req := pkgapi.PeerUpdateRequest{
 		Name:                strPtr(v["name"]),
-		AllowedIPs:          splitCSV(v["allowed_ips"]),
-		AssignedIPs:         splitCSV(v["assigned_ips"]),
+		AllowedIPs:          allowed,
+		AssignedIPs:         assigned,
 		Endpoint:            strPtr(v["endpoint"]),
 		Notes:               strPtr(v["notes"]),
 		PersistentKeepalive: &ka,
@@ -446,6 +484,74 @@ func (m rootModel) submitPeerForm() (tea.Model, tea.Cmd) {
 		BandwidthTxBps:      &tx,
 	}
 	return m.startMutate(doUpdatePeer(m.cfg.Client, m.editIface, m.editPub, req))
+}
+
+// resolvePeerIPs validates or auto-allocates allowed/assigned addresses for a peer.
+func (m rootModel) resolvePeerIPs(ifaceName string, v map[string]string) (allowed, assigned []string, err error) {
+	auto := truthy(v["auto_ip"]) || netutil.IsAutoToken(v["allowed_ips"]) || netutil.IsAutoToken(v["assigned_ips"])
+	allowed = splitCSV(v["allowed_ips"])
+	assigned = splitCSV(v["assigned_ips"])
+	// strip auto tokens
+	allowed = filterAutoTokens(allowed)
+	assigned = filterAutoTokens(assigned)
+
+	if auto || (len(allowed) == 0 && len(assigned) == 0) {
+		host, cidr, aerr := m.allocateIP(ifaceName)
+		if aerr != nil {
+			return nil, nil, aerr
+		}
+		if len(assigned) == 0 {
+			assigned = []string{host}
+		}
+		if len(allowed) == 0 {
+			allowed = []string{cidr}
+		}
+	}
+	if err := netutil.ValidateCIDRList(allowed); err != nil {
+		return nil, nil, fmt.Errorf("allowed_ips: %w", err)
+	}
+	if err := netutil.ValidateIPOrCIDRList(assigned); err != nil {
+		return nil, nil, fmt.Errorf("assigned_ips: %w", err)
+	}
+	return allowed, assigned, nil
+}
+
+func filterAutoTokens(in []string) []string {
+	var out []string
+	for _, s := range in {
+		if netutil.IsAutoToken(s) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func (m rootModel) allocateIP(ifaceName string) (assigned, allowed string, err error) {
+	var ifaceAddrs []string
+	for _, iface := range m.ifaces {
+		if iface.Name == ifaceName {
+			ifaceAddrs = iface.Addresses
+			break
+		}
+	}
+	if len(ifaceAddrs) == 0 {
+		return "", "", fmt.Errorf("interface %q has no addresses — set Address= first", ifaceName)
+	}
+	var peerAssigned, peerAllowed [][]string
+	for _, p := range m.peers {
+		if p.InterfaceName != ifaceName {
+			continue
+		}
+		// when editing, free the peer's current IPs for re-use
+		if m.mode == modePeerForm && !m.formCreate && p.PublicKey == m.editPub {
+			continue
+		}
+		peerAssigned = append(peerAssigned, p.AssignedIPs)
+		peerAllowed = append(peerAllowed, p.AllowedIPs)
+	}
+	used := netutil.CollectUsedHosts(ifaceAddrs, peerAssigned, peerAllowed)
+	return netutil.AllocateNextHost(ifaceAddrs, used)
 }
 
 func strPtr(s string) *string { return &s }
@@ -644,6 +750,7 @@ func (m rootModel) openIfaceCreate() (tea.Model, tea.Cmd) {
 	m.form = newForm("New interface", ifaceCreateFields(), map[string]string{
 		"port": "51820", "table": "auto",
 	})
+	m.form.SetWidth(m.width)
 	m.formCreate = true
 	m.mode = modeIfaceForm
 	return m, m.form.Init()
@@ -668,6 +775,7 @@ func (m rootModel) openIfaceEdit(iface pkgapi.Interface) (tea.Model, tea.Cmd) {
 		"fwmark":          fmt.Sprintf("%d", iface.FwMark),
 		"public_endpoint": iface.PublicEndpoint,
 	})
+	m.form.SetWidth(m.width)
 	m.formCreate = false
 	m.editName = iface.Name
 	m.mode = modeIfaceForm
@@ -675,9 +783,31 @@ func (m rootModel) openIfaceEdit(iface pkgapi.Interface) (tea.Model, tea.Cmd) {
 }
 
 func (m rootModel) openPeerCreate(iface string) (tea.Model, tea.Cmd) {
-	m.form = newForm("New peer", peerCreateFields(), map[string]string{
+	names := m.ifaceNames()
+	// Prefer currently selected interface when on Interfaces tab.
+	if iface == "" && m.tab == tabInterfaces && m.cursor < len(m.ifaces) {
+		iface = m.ifaces[m.cursor].Name
+	}
+	if iface == "" && len(names) > 0 {
+		iface = names[0]
+	}
+	if iface != "" {
+		found := false
+		for _, n := range names {
+			if n == iface {
+				found = true
+				break
+			}
+		}
+		if !found {
+			names = append([]string{iface}, names...)
+		}
+	}
+	m.form = newForm("New peer", peerCreateFields(names), map[string]string{
 		"iface": iface, "gen_psk": "y", "gen_client": "y", "keepalive": "25",
+		"auto_ip": "y", "allowed_ips": "auto", "assigned_ips": "auto",
 	})
+	m.form.SetWidth(m.width)
 	m.formCreate = true
 	m.mode = modePeerForm
 	return m, m.form.Init()
@@ -686,6 +816,7 @@ func (m rootModel) openPeerCreate(iface string) (tea.Model, tea.Cmd) {
 func (m rootModel) openPeerEdit(p pkgapi.Peer) (tea.Model, tea.Cmd) {
 	m.form = newForm("Edit peer "+trunc(p.Name, 20), peerEditFields(), map[string]string{
 		"name":          p.Name,
+		"auto_ip":       "n",
 		"allowed_ips":   joinCSV(p.AllowedIPs),
 		"assigned_ips":  joinCSV(p.AssignedIPs),
 		"endpoint":      p.Endpoint,
@@ -695,6 +826,7 @@ func (m rootModel) openPeerEdit(p pkgapi.Peer) (tea.Model, tea.Cmd) {
 		"bw_rx":         fmt.Sprintf("%d", p.BandwidthRxBps),
 		"bw_tx":         fmt.Sprintf("%d", p.BandwidthTxBps),
 	})
+	m.form.SetWidth(m.width)
 	m.formCreate = false
 	m.editIface = p.InterfaceName
 	m.editPub = p.PublicKey
@@ -702,58 +834,86 @@ func (m rootModel) openPeerEdit(p pkgapi.Peer) (tea.Model, tea.Cmd) {
 	return m, m.form.Init()
 }
 
+func (m rootModel) ifaceNames() []string {
+	out := make([]string, 0, len(m.ifaces))
+	for _, iface := range m.ifaces {
+		out = append(out, iface.Name)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // ---- View ----
 
 func (m rootModel) View() string {
-	var b strings.Builder
-	b.WriteString(statusStyle.Render(fmt.Sprintf(" wireguardctl · %s · %s ", m.cfg.Endpoint, m.status)))
-	if m.flash != "" {
-		b.WriteString(" ")
-		b.WriteString(okStyle.Render("✓ " + m.flash))
+	w, h := m.width, m.height
+	if w <= 0 {
+		w = 100
 	}
-	b.WriteString("\n")
+	if h <= 0 {
+		h = 30
+	}
+
+	var body strings.Builder
+	// Status bar (full width)
+	status := fmt.Sprintf(" wireguardctl  ·  %s  ·  %s ", m.cfg.Endpoint, m.status)
+	if m.flash != "" {
+		status += "  ✓ " + m.flash + " "
+	}
+	body.WriteString(statusStyle.Width(w).Render(status))
+	body.WriteString("\n")
 
 	if m.mode == modeList {
-		b.WriteString(m.renderTabs())
-		b.WriteString("\n\n")
+		body.WriteString(m.renderTabs())
+		body.WriteString("\n\n")
 	}
 
 	if m.err != "" && m.mode != modeIfaceForm && m.mode != modePeerForm {
-		b.WriteString(errStyle.Render("error: " + m.err))
-		b.WriteString("\n\n")
+		body.WriteString(errStyle.Render("error: " + m.err))
+		body.WriteString("\n\n")
 	}
 
 	switch m.mode {
 	case modeConfirm:
-		b.WriteString(panelStyle.Render(
+		body.WriteString(panelStyle.Width(w - 4).Render(
 			warnStyle.Render("Confirm") + "\n\n" + m.confirmText + "\n\n" +
 				helpStyle.Render("[y] yes  [n/esc] cancel"),
 		))
 	case modeIfaceForm, modePeerForm:
-		b.WriteString(m.form.View())
+		body.WriteString(m.form.View())
 	case modeIfaceDetail:
-		b.WriteString(m.viewIfaceDetail())
+		body.WriteString(m.viewIfaceDetail())
 	case modePeerDetail:
-		b.WriteString(m.viewPeerDetail())
+		body.WriteString(m.viewPeerDetail())
 	case modeClientConf:
-		b.WriteString(m.viewClientConf())
+		body.WriteString(m.viewClientConf())
 	default:
 		switch m.tab {
 		case tabInterfaces:
-			b.WriteString(m.viewInterfaces())
+			body.WriteString(m.viewInterfaces())
 		case tabPeers:
-			b.WriteString(m.viewPeers())
+			body.WriteString(m.viewPeers())
 		case tabStats:
-			b.WriteString(m.viewStats())
+			body.WriteString(m.viewStats())
 		case tabEvents:
-			b.WriteString(m.viewEvents())
+			body.WriteString(m.viewEvents())
 		case tabKeys:
-			b.WriteString(m.viewKeys())
+			body.WriteString(m.viewKeys())
 		}
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render(m.listHelp()))
+		body.WriteString("\n")
+		body.WriteString(helpStyle.Width(w).Render(m.listHelp()))
 	}
-	return b.String()
+
+	// Pad/crop to full terminal height so we own the screen.
+	content := body.String()
+	lines := strings.Split(content, "\n")
+	if len(lines) < h {
+		pad := make([]string, h-len(lines))
+		lines = append(lines, pad...)
+	} else if len(lines) > h {
+		lines = lines[:h]
+	}
+	return appStyle.Width(w).Height(h).Render(strings.Join(lines, "\n"))
 }
 
 func (m rootModel) listHelp() string {
@@ -1008,7 +1168,11 @@ func (m rootModel) viewPeerDetail() string {
 	kv("Last handshake", p.LastHandshakeAt)
 	kv("Notes", p.Notes)
 	help := helpStyle.Render("esc back · e edit · s suspend/resume · t reset traffic · c client conf · D delete")
-	return panelStyle.Render(titleStyle.Render("Peer "+firstNonEmpty(p.Name, wgutil.ShortKey(p.PublicKey))) + "\n" + body.String() + "\n" + help)
+	content := titleStyle.Render("Peer "+firstNonEmpty(p.Name, wgutil.ShortKey(p.PublicKey))) + "\n" + body.String() + "\n" + help
+	if m.width > 10 {
+		return panelStyle.Width(m.width - 4).Render(content)
+	}
+	return panelStyle.Render(content)
 }
 
 func (m rootModel) viewClientConf() string {
