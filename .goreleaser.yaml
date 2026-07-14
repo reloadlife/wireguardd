@@ -32,16 +32,28 @@ builds:
       - -X github.com/reloadlife/wireguardd/internal/version.Date={{.Date}}
 
 archives:
-  - id: default
+  # Separate archives: wireguardd is Linux-only; wireguardctl also ships for macOS.
+  - id: wireguardd
+    ids: [wireguardd]
     formats: [tar.gz]
     name_template: >-
-      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+      wireguardd_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
       - LICENSE
       - README.md
       - configs/*
       - deploy/*
       - api/openapi.yaml
+
+  - id: wireguardctl
+    ids: [wireguardctl]
+    formats: [tar.gz]
+    name_template: >-
+      wireguardctl_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+      - configs/wireguardctl.example.yaml
 
 checksum:
   name_template: checksums.txt
@@ -66,21 +78,22 @@ release:
   footer: |
     ## Install
 
-    ### Linux (amd64)
+    ### Linux daemon + ctl (amd64)
 
     ```bash
     tar -xzf wireguardd_{{ .Tag }}_linux_amd64.tar.gz
+    tar -xzf wireguardctl_{{ .Tag }}_linux_amd64.tar.gz
     sudo install -m 0755 wireguardd wireguardctl /usr/local/bin/
     ```
 
-    ### Linux (arm64)
+    ### macOS control panel only (ctl)
 
     ```bash
-    tar -xzf wireguardd_{{ .Tag }}_linux_arm64.tar.gz
-    sudo install -m 0755 wireguardd wireguardctl /usr/local/bin/
+    tar -xzf wireguardctl_{{ .Tag }}_darwin_arm64.tar.gz
+    sudo install -m 0755 wireguardctl /usr/local/bin/
     ```
 
-    See [README](https://github.com/reloadlife/wireguardd#readme) for configuration and systemd install.
+    See [README](https://github.com/reloadlife/wireguardd#readme) for configuration and systemd.
 
     ## Checksums
 
