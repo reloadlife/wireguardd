@@ -115,7 +115,7 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		if m.mode == modeIfaceForm || m.mode == modePeerForm {
-			m.form.SetWidth(msg.Width)
+			m.form.SetSize(msg.Width, m.formAreaHeight())
 		}
 		return m, nil
 
@@ -318,10 +318,64 @@ func (m rootModel) handleFormKeyAll(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.submitIfaceForm()
 		}
 		return m.submitPeerForm()
+	case "a", "A":
+		// Re-pick next free tunnel IP while on peer form.
+		if m.mode == modePeerForm {
+			m.refreshTunnelIP(true)
+			return m, nil
+		}
 	}
+	prevIface := m.form.Get("iface")
 	var cmd tea.Cmd
 	m.form, cmd = m.form.Update(msg)
+	// Interface changed → re-auto tunnel IP for the new subnet.
+	if m.mode == modePeerForm && m.formCreate && m.form.Get("iface") != prevIface {
+		m.refreshTunnelIP(true)
+	}
 	return m, cmd
+}
+
+func (m rootModel) formAreaHeight() int {
+	// status(1) + blank(0) — form fills rest
+	h := m.height - 1
+	if h < 10 {
+		h = 10
+	}
+	return h
+}
+
+// refreshTunnelIP fills tunnel_ip with next free host; force overwrites current value.
+func (m *rootModel) refreshTunnelIP(force bool) {
+	if m.mode != modePeerForm {
+		return
+	}
+	iface := m.form.Get("iface")
+	if m.formCreate {
+		// ok
+	} else {
+		iface = m.editIface
+	}
+	if iface == "" || strings.HasPrefix(iface, "(") {
+		m.form.note = "pick an interface first"
+		return
+	}
+	cur := m.form.Get("tunnel_ip")
+	if !force && cur != "" && !netutil.IsAutoToken(cur) {
+		// keep manual edit; still update note
+		if host, _, err := m.allocateIP(iface); err == nil {
+			m.form.note = fmt.Sprintf("subnet ready · next free would be %s  (press a to use it)", host)
+		}
+		return
+	}
+	host, cidr, err := m.allocateIP(iface)
+	if err != nil {
+		m.form.note = "IP: " + err.Error()
+		m.form.err = ""
+		return
+	}
+	m.form.SetFieldValue("tunnel_ip", host)
+	m.form.note = fmt.Sprintf("auto tunnel IP %s  →  AllowedIPs %s   ·  press a to re-pick", host, cidr)
+	m.form.err = ""
 }
 
 func (m rootModel) submitIfaceForm() (tea.Model, tea.Cmd) {
@@ -486,26 +540,41 @@ func (m rootModel) submitPeerForm() (tea.Model, tea.Cmd) {
 	return m.startMutate(doUpdatePeer(m.cfg.Client, m.editIface, m.editPub, req))
 }
 
-// resolvePeerIPs validates or auto-allocates allowed/assigned addresses for a peer.
+// resolvePeerIPs builds allowed+assigned from the single tunnel_ip field (or legacy fields).
 func (m rootModel) resolvePeerIPs(ifaceName string, v map[string]string) (allowed, assigned []string, err error) {
-	auto := truthy(v["auto_ip"]) || netutil.IsAutoToken(v["allowed_ips"]) || netutil.IsAutoToken(v["assigned_ips"])
+	// Prefer simplified tunnel_ip field.
+	tip := strings.TrimSpace(v["tunnel_ip"])
+	if tip != "" || netutil.IsAutoToken(v["allowed_ips"]) || netutil.IsAutoToken(v["assigned_ips"]) || truthy(v["auto_ip"]) {
+		if tip == "" || netutil.IsAutoToken(tip) {
+			host, cidr, aerr := m.allocateIP(ifaceName)
+			if aerr != nil {
+				return nil, nil, aerr
+			}
+			return []string{cidr}, []string{host}, nil
+		}
+		// Accept bare IP or host CIDR.
+		if err := netutil.ValidateIPOrCIDR(tip); err != nil {
+			return nil, nil, fmt.Errorf("tunnel IP: %w", err)
+		}
+		host, err := netutil.NormalizeHostIP(tip)
+		if err != nil {
+			return nil, nil, fmt.Errorf("tunnel IP: %w", err)
+		}
+		cidr, err := netutil.HostCIDR(host)
+		if err != nil {
+			return nil, nil, err
+		}
+		return []string{cidr}, []string{host}, nil
+	}
+	// Legacy multi-field path (edit forms / API-shaped values).
 	allowed = splitCSV(v["allowed_ips"])
 	assigned = splitCSV(v["assigned_ips"])
-	// strip auto tokens
-	allowed = filterAutoTokens(allowed)
-	assigned = filterAutoTokens(assigned)
-
-	if auto || (len(allowed) == 0 && len(assigned) == 0) {
+	if len(allowed) == 0 && len(assigned) == 0 {
 		host, cidr, aerr := m.allocateIP(ifaceName)
 		if aerr != nil {
 			return nil, nil, aerr
 		}
-		if len(assigned) == 0 {
-			assigned = []string{host}
-		}
-		if len(allowed) == 0 {
-			allowed = []string{cidr}
-		}
+		return []string{cidr}, []string{host}, nil
 	}
 	if err := netutil.ValidateCIDRList(allowed); err != nil {
 		return nil, nil, fmt.Errorf("allowed_ips: %w", err)
@@ -514,17 +583,6 @@ func (m rootModel) resolvePeerIPs(ifaceName string, v map[string]string) (allowe
 		return nil, nil, fmt.Errorf("assigned_ips: %w", err)
 	}
 	return allowed, assigned, nil
-}
-
-func filterAutoTokens(in []string) []string {
-	var out []string
-	for _, s := range in {
-		if netutil.IsAutoToken(s) {
-			continue
-		}
-		out = append(out, s)
-	}
-	return out
 }
 
 func (m rootModel) allocateIP(ifaceName string) (assigned, allowed string, err error) {
@@ -750,7 +808,7 @@ func (m rootModel) openIfaceCreate() (tea.Model, tea.Cmd) {
 	m.form = newForm("New interface", ifaceCreateFields(), map[string]string{
 		"port": "51820", "table": "auto",
 	})
-	m.form.SetWidth(m.width)
+	m.form.SetSize(m.width, m.formAreaHeight())
 	m.formCreate = true
 	m.mode = modeIfaceForm
 	return m, m.form.Init()
@@ -775,7 +833,7 @@ func (m rootModel) openIfaceEdit(iface pkgapi.Interface) (tea.Model, tea.Cmd) {
 		"fwmark":          fmt.Sprintf("%d", iface.FwMark),
 		"public_endpoint": iface.PublicEndpoint,
 	})
-	m.form.SetWidth(m.width)
+	m.form.SetSize(m.width, m.formAreaHeight())
 	m.formCreate = false
 	m.editName = iface.Name
 	m.mode = modeIfaceForm
@@ -805,20 +863,24 @@ func (m rootModel) openPeerCreate(iface string) (tea.Model, tea.Cmd) {
 	}
 	m.form = newForm("New peer", peerCreateFields(names), map[string]string{
 		"iface": iface, "gen_psk": "y", "gen_client": "y", "keepalive": "25",
-		"auto_ip": "y", "allowed_ips": "auto", "assigned_ips": "auto",
 	})
-	m.form.SetWidth(m.width)
+	m.form.SetSize(m.width, m.formAreaHeight())
 	m.formCreate = true
 	m.mode = modePeerForm
+	m.refreshTunnelIP(true)
 	return m, m.form.Init()
 }
 
 func (m rootModel) openPeerEdit(p pkgapi.Peer) (tea.Model, tea.Cmd) {
+	tip := ""
+	if len(p.AssignedIPs) > 0 {
+		tip = p.AssignedIPs[0]
+	} else if len(p.AllowedIPs) > 0 {
+		tip, _ = netutil.NormalizeHostIP(p.AllowedIPs[0])
+	}
 	m.form = newForm("Edit peer "+trunc(p.Name, 20), peerEditFields(), map[string]string{
 		"name":          p.Name,
-		"auto_ip":       "n",
-		"allowed_ips":   joinCSV(p.AllowedIPs),
-		"assigned_ips":  joinCSV(p.AssignedIPs),
+		"tunnel_ip":     tip,
 		"endpoint":      p.Endpoint,
 		"keepalive":     fmt.Sprintf("%d", p.PersistentKeepalive),
 		"notes":         p.Notes,
@@ -826,11 +888,12 @@ func (m rootModel) openPeerEdit(p pkgapi.Peer) (tea.Model, tea.Cmd) {
 		"bw_rx":         fmt.Sprintf("%d", p.BandwidthRxBps),
 		"bw_tx":         fmt.Sprintf("%d", p.BandwidthTxBps),
 	})
-	m.form.SetWidth(m.width)
+	m.form.SetSize(m.width, m.formAreaHeight())
 	m.formCreate = false
 	m.editIface = p.InterfaceName
 	m.editPub = p.PublicKey
 	m.mode = modePeerForm
+	m.refreshTunnelIP(false)
 	return m, m.form.Init()
 }
 
@@ -854,66 +917,98 @@ func (m rootModel) View() string {
 		h = 30
 	}
 
-	var body strings.Builder
-	// Status bar (full width)
+	// --- fixed chrome ---
 	status := fmt.Sprintf(" wireguardctl  ·  %s  ·  %s ", m.cfg.Endpoint, m.status)
 	if m.flash != "" {
-		status += "  ✓ " + m.flash + " "
+		status += " ✓ " + m.flash + " "
 	}
-	body.WriteString(statusStyle.Width(w).Render(status))
-	body.WriteString("\n")
+	if m.busy {
+		status += " … "
+	}
+	header := statusStyle.Width(w).Render(status)
 
-	if m.mode == modeList {
-		body.WriteString(m.renderTabs())
-		body.WriteString("\n\n")
+	footerHelp := m.chromeHelp()
+	footer := helpStyle.Width(w).Background(cBarBg).Foreground(cBarFg).Padding(0, 1).Render(footerHelp)
+
+	// Measure chrome so main fills 100% of remaining rows.
+	headerH := lipgloss.Height(header)
+	footerH := lipgloss.Height(footer)
+	mainH := h - headerH - footerH
+	if mainH < 1 {
+		mainH = 1
 	}
 
-	if m.err != "" && m.mode != modeIfaceForm && m.mode != modePeerForm {
-		body.WriteString(errStyle.Render("error: " + m.err))
-		body.WriteString("\n\n")
-	}
-
+	var mid string
 	switch m.mode {
 	case modeConfirm:
-		body.WriteString(panelStyle.Width(w - 4).Render(
+		mid = panelStyle.Width(w - 2).Height(mainH - 1).Render(
 			warnStyle.Render("Confirm") + "\n\n" + m.confirmText + "\n\n" +
-				helpStyle.Render("[y] yes  [n/esc] cancel"),
-		))
+				helpStyle.Render("[y] yes   [n / esc] cancel"),
+		)
 	case modeIfaceForm, modePeerForm:
-		body.WriteString(m.form.View())
+		m.form.SetSize(w, mainH)
+		mid = m.form.View()
 	case modeIfaceDetail:
-		body.WriteString(m.viewIfaceDetail())
+		mid = m.viewIfaceDetailSized(w, mainH)
 	case modePeerDetail:
-		body.WriteString(m.viewPeerDetail())
+		mid = m.viewPeerDetailSized(w, mainH)
 	case modeClientConf:
-		body.WriteString(m.viewClientConf())
+		mid = panelStyle.Width(w - 2).Height(mainH - 1).Render(
+			titleStyle.Render("Client config") + "\n\n" + m.clientConf + "\n\n" +
+				helpStyle.Render("esc / enter back"),
+		)
 	default:
+		// list modes: tabs + table + fill
+		var b strings.Builder
+		b.WriteString(m.renderTabs())
+		b.WriteString("\n")
+		if m.err != "" {
+			b.WriteString(errStyle.Render("error: " + m.err))
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
 		switch m.tab {
 		case tabInterfaces:
-			body.WriteString(m.viewInterfaces())
+			b.WriteString(m.viewInterfaces())
 		case tabPeers:
-			body.WriteString(m.viewPeers())
+			b.WriteString(m.viewPeers())
 		case tabStats:
-			body.WriteString(m.viewStats())
+			b.WriteString(m.viewStats())
 		case tabEvents:
-			body.WriteString(m.viewEvents())
+			b.WriteString(m.viewEvents())
 		case tabKeys:
-			body.WriteString(m.viewKeys())
+			b.WriteString(m.viewKeys())
 		}
-		body.WriteString("\n")
-		body.WriteString(helpStyle.Width(w).Render(m.listHelp()))
+		mid = fillHeight(b.String(), w, mainH)
 	}
 
-	// Pad/crop to full terminal height so we own the screen.
-	content := body.String()
-	lines := strings.Split(content, "\n")
-	if len(lines) < h {
-		pad := make([]string, h-len(lines))
-		lines = append(lines, pad...)
-	} else if len(lines) > h {
-		lines = lines[:h]
+	// Force main pane to exact height (pad/crop).
+	mid = fillHeight(mid, w, mainH)
+	return lipgloss.JoinVertical(lipgloss.Left, header, mid, footer)
+}
+
+func (m rootModel) chromeHelp() string {
+	switch m.mode {
+	case modeIfaceForm, modePeerForm:
+		if m.mode == modePeerForm {
+			return " tab/↑↓ fields  ·  ←/→ interface  ·  a = re-auto tunnel IP  ·  enter save  ·  esc cancel "
+		}
+		return " tab/↑↓ fields  ·  enter save  ·  esc cancel "
+	case modeConfirm:
+		return " y confirm  ·  n/esc cancel "
+	case modeIfaceDetail, modePeerDetail, modeClientConf:
+		return " esc back  ·  e edit  ·  q quit "
+	default:
+		return " " + m.listHelp() + " "
 	}
-	return appStyle.Width(w).Height(h).Render(strings.Join(lines, "\n"))
+}
+
+func (m rootModel) viewIfaceDetailSized(w, h int) string {
+	return fillHeight(m.viewIfaceDetail(), w, h)
+}
+
+func (m rootModel) viewPeerDetailSized(w, h int) string {
+	return fillHeight(m.viewPeerDetail(), w, h)
 }
 
 func (m rootModel) listHelp() string {

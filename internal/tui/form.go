@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // field kinds
@@ -33,7 +34,10 @@ type formModel struct {
 	focus  int
 	err    string
 	width  int
+	height int
 	help   string
+	// footer note (e.g. IP pool status)
+	note string
 }
 
 func newForm(title string, fields []fieldDef, values map[string]string) formModel {
@@ -71,24 +75,11 @@ func newForm(title string, fields []fieldDef, values map[string]string) formMode
 				}
 			}
 		}
-		if kind == fieldText && i == firstTextIndex(fields) {
-			ti.Focus()
-		}
 		inputs[i] = ti
 	}
-	// focus first field
 	f := formModel{title: title, fields: fields, inputs: inputs, selIdx: selIdx, focus: 0}
 	_ = f.focusInput()
 	return f
-}
-
-func firstTextIndex(fields []fieldDef) int {
-	for i, f := range fields {
-		if f.Kind == "" || f.Kind == fieldText {
-			return i
-		}
-	}
-	return 0
 }
 
 func indexOf(opts []string, v string) int {
@@ -125,7 +116,6 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 			}
 		}
 	}
-	// text input only when focused field is text
 	if f.fields[f.focus].Kind == fieldText {
 		var cmd tea.Cmd
 		f.inputs[f.focus], cmd = f.inputs[f.focus].Update(msg)
@@ -154,6 +144,35 @@ func (f *formModel) focusInput() tea.Cmd {
 		}
 	}
 	return textinput.Blink
+}
+
+// SetFieldValue sets a text field by key (e.g. after re-auto IP).
+func (f *formModel) SetFieldValue(key, val string) {
+	for i, field := range f.fields {
+		if field.Key == key && field.Kind == fieldText {
+			f.inputs[i].SetValue(val)
+			return
+		}
+	}
+}
+
+// SetSelectOptions updates select options and tries to keep current selection.
+func (f *formModel) SetSelectOptions(key string, opts []string) {
+	for i, field := range f.fields {
+		if field.Key != key {
+			continue
+		}
+		cur := ""
+		if len(field.Options) > 0 && f.selIdx[i] >= 0 && f.selIdx[i] < len(field.Options) {
+			cur = field.Options[f.selIdx[i]]
+		}
+		f.fields[i].Options = opts
+		f.selIdx[i] = indexOf(opts, cur)
+		if f.selIdx[i] < 0 {
+			f.selIdx[i] = 0
+		}
+		return
+	}
 }
 
 func (f formModel) Values() map[string]string {
@@ -185,14 +204,22 @@ func (f formModel) Get(key string) string {
 	return f.Values()[key]
 }
 
-func (f *formModel) SetWidth(w int) {
-	f.width = w
-	iw := w - 28
-	if iw < 20 {
-		iw = 20
+func (f formModel) FocusedKey() string {
+	if f.focus >= 0 && f.focus < len(f.fields) {
+		return f.fields[f.focus].Key
 	}
-	if iw > 80 {
-		iw = 80
+	return ""
+}
+
+func (f *formModel) SetSize(w, h int) {
+	f.width = w
+	f.height = h
+	iw := w - 26
+	if iw < 24 {
+		iw = 24
+	}
+	if iw > 100 {
+		iw = 100
 	}
 	for i := range f.inputs {
 		f.inputs[i].Width = iw
@@ -202,138 +229,163 @@ func (f *formModel) SetWidth(w int) {
 func (f formModel) View() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render(f.title))
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 	if f.err != "" {
-		b.WriteString(errStyle.Render("✗ " + f.err))
+		b.WriteString(errStyle.Render("✗  " + f.err))
+		b.WriteString("\n\n")
+	}
+	if f.note != "" {
+		b.WriteString(okStyle.Render("  " + f.note))
 		b.WriteString("\n\n")
 	}
 	for i, field := range f.fields {
-		label := field.Label
-		if i == f.focus {
-			label = focusStyle.Render(" › " + label + " ")
+		focused := i == f.focus
+		var label string
+		if focused {
+			label = focusStyle.Render(fmt.Sprintf(" %-16s ", field.Label))
 		} else {
-			label = labelStyle.Render("   " + label)
+			label = labelStyle.Width(18).Render(" " + field.Label)
 		}
 		var val string
 		switch field.Kind {
 		case fieldSelect:
 			opts := field.Options
 			if len(opts) == 0 {
-				val = dimStyle.Render("(none)")
+				val = dimStyle.Render("(none available)")
 			} else {
 				idx := f.selIdx[i]
 				if idx < 0 || idx >= len(opts) {
 					idx = 0
 				}
-				// show current with neighbors
 				cur := opts[idx]
-				if i == f.focus {
-					val = selStyle.Render("◀ "+cur+" ▶") + dimStyle.Render(fmt.Sprintf("  %d/%d  ←/→", idx+1, len(opts)))
+				if focused {
+					val = selStyle.Render(" ◀ "+cur+" ▶ ") + dimStyle.Render(fmt.Sprintf(" %d/%d", idx+1, len(opts)))
 				} else {
 					val = valueStyle.Render(cur)
 				}
 			}
 		case fieldBool:
 			on := f.selIdx[i] == 1
-			if i == f.focus {
+			if focused {
 				if on {
-					val = okStyle.Render("[✓ yes]") + dimStyle.Render("  ←/→ or space")
+					val = okStyle.Render(" [ ON  ] ") + dimStyle.Render("space/←→ toggle")
 				} else {
-					val = dimStyle.Render("[  no ]") + dimStyle.Render("  ←/→ or space")
+					val = dimStyle.Render(" [ off ] ") + dimStyle.Render("space/←→ toggle")
 				}
 			} else if on {
-				val = okStyle.Render("yes")
+				val = okStyle.Render("on")
 			} else {
-				val = dimStyle.Render("no")
+				val = dimStyle.Render("off")
 			}
 		default:
 			val = f.inputs[i].View()
 		}
-		b.WriteString(fmt.Sprintf("%s %s\n", label, val))
-		if field.Hint != "" && i == f.focus {
-			b.WriteString(dimStyle.Render("       " + field.Hint))
+		b.WriteString(label)
+		b.WriteString("  ")
+		b.WriteString(val)
+		b.WriteString("\n")
+		if field.Hint != "" && focused {
+			b.WriteString(dimStyle.Render("                    " + field.Hint))
 			b.WriteString("\n")
 		}
+		b.WriteString("\n")
 	}
-	b.WriteString("\n")
 	help := f.help
 	if help == "" {
-		help = "tab/↑↓ fields · ←/→ or space select · enter submit · esc cancel"
+		help = "tab/↑↓ move  ·  ←/→ or space change  ·  enter save  ·  esc cancel"
 	}
 	b.WriteString(helpStyle.Render(help))
-	body := b.String()
-	if f.width > 10 {
-		return panelStyle.Width(f.width - 4).Render(body)
+
+	inner := b.String()
+	w := f.width
+	if w < 40 {
+		w = 80
 	}
-	return panelStyle.Render(body)
+	// Fill remaining form area with a full-size panel.
+	box := panelStyle.Width(w - 2)
+	if f.height > 6 {
+		// content height inside border/padding
+		box = box.Height(f.height - 2)
+	}
+	return box.Render(inner)
 }
 
-// Standard form field sets.
+// --- Field sets ---
+
 func ifaceCreateFields() []fieldDef {
 	return []fieldDef{
-		{Key: "name", Label: "Name", Hint: "wg0"},
+		{Key: "name", Label: "Name", Hint: "e.g. wg0"},
 		{Key: "port", Label: "Listen port", Hint: "51820"},
-		{Key: "addresses", Label: "Addresses", Hint: "CIDR list: 10.7.0.1/24, fd00::1/64"},
-		{Key: "dns", Label: "DNS", Hint: "1.1.1.1 or domains (optional)"},
-		{Key: "mtu", Label: "MTU", Hint: "1420 (optional)"},
+		{Key: "addresses", Label: "Server addr", Hint: "CIDR required — e.g. 10.7.0.1/24"},
+		{Key: "dns", Label: "DNS", Hint: "optional — 1.1.1.1"},
+		{Key: "mtu", Label: "MTU", Hint: "optional — 1420"},
 		{Key: "table", Label: "Table", Hint: "auto | off | number"},
-		{Key: "table_id", Label: "Table ID", Hint: "when table=number"},
-		{Key: "fwmark", Label: "FwMark", Hint: "0=auto from port"},
-		{Key: "public_endpoint", Label: "Public endpoint", Hint: "vpn.example.com:51820"},
+		{Key: "table_id", Label: "Table ID", Hint: "only if table=number"},
+		{Key: "fwmark", Label: "FwMark", Hint: "0 = auto"},
+		{Key: "public_endpoint", Label: "Public endpt", Hint: "vpn.example.com:51820"},
 	}
 }
 
 func ifaceEditFields() []fieldDef {
 	return []fieldDef{
 		{Key: "port", Label: "Listen port", Hint: "51820"},
-		{Key: "addresses", Label: "Addresses", Hint: "CIDR list only"},
+		{Key: "addresses", Label: "Server addr", Hint: "CIDR list"},
 		{Key: "dns", Label: "DNS", Hint: "optional"},
 		{Key: "mtu", Label: "MTU", Hint: "1420"},
 		{Key: "table", Label: "Table", Hint: "auto | off | number"},
-		{Key: "table_id", Label: "Table ID", Hint: "when table=number"},
+		{Key: "table_id", Label: "Table ID", Hint: "if number"},
 		{Key: "fwmark", Label: "FwMark", Hint: "0=auto"},
-		{Key: "public_endpoint", Label: "Public endpoint", Hint: "host:port"},
+		{Key: "public_endpoint", Label: "Public endpt", Hint: "host:port"},
 	}
 }
 
+// peerCreateFields — simple path: pick iface, name, tunnel IP (pre-filled free).
 func peerCreateFields(ifaces []string) []fieldDef {
 	opts := append([]string{}, ifaces...)
 	if len(opts) == 0 {
-		opts = []string{""}
+		opts = []string{"(no interfaces)"}
 	}
 	return []fieldDef{
-		{Key: "iface", Label: "Interface", Hint: "←/→ select interface", Kind: fieldSelect, Options: opts},
-		{Key: "name", Label: "Name", Hint: "alice"},
-		{Key: "pubkey", Label: "Public key", Hint: "leave empty if gen client key = yes"},
-		{Key: "auto_ip", Label: "Auto IP", Hint: "allocate next free IP from interface subnet", Kind: fieldBool},
-		{Key: "allowed_ips", Label: "AllowedIPs", Hint: "auto or 10.7.0.2/32 — must be valid CIDR"},
-		{Key: "assigned_ips", Label: "Assigned IPs", Hint: "auto or 10.7.0.2 — client tunnel address"},
-		{Key: "endpoint", Label: "Endpoint", Hint: "optional host:port"},
-		{Key: "keepalive", Label: "Keepalive", Hint: "25"},
-		{Key: "gen_psk", Label: "Generate PSK", Kind: fieldBool},
-		{Key: "gen_client", Label: "Gen client key", Hint: "for conf/QR export", Kind: fieldBool},
-		{Key: "traffic_limit", Label: "Traffic limit B", Hint: "0=unlimited"},
-		{Key: "bw_rx", Label: "BW RX bps", Hint: "0=unlimited"},
-		{Key: "bw_tx", Label: "BW TX bps", Hint: "0=unlimited"},
+		{Key: "iface", Label: "Interface", Hint: "←/→ choose which WireGuard iface", Kind: fieldSelect, Options: opts},
+		{Key: "name", Label: "Name", Hint: "friendly name — alice, phone, …"},
+		{Key: "tunnel_ip", Label: "Tunnel IP", Hint: "next free IP is filled in — edit or press a to re-pick"},
+		{Key: "gen_client", Label: "Client key", Hint: "generate keypair so conf/QR works", Kind: fieldBool},
+		{Key: "gen_psk", Label: "PSK", Hint: "shared secret", Kind: fieldBool},
+		{Key: "keepalive", Label: "Keepalive", Hint: "seconds — 25 is typical"},
+		{Key: "pubkey", Label: "Public key", Hint: "only if client key = off (paste peer pubkey)"},
+		{Key: "endpoint", Label: "Endpoint", Hint: "optional peer host:port"},
+		{Key: "traffic_limit", Label: "Quota (B)", Hint: "0 = unlimited"},
+		{Key: "bw_rx", Label: "BW RX bps", Hint: "0 = unlimited"},
+		{Key: "bw_tx", Label: "BW TX bps", Hint: "0 = unlimited"},
 	}
 }
 
 func peerEditFields() []fieldDef {
 	return []fieldDef{
-		{Key: "name", Label: "Name", Hint: "alice"},
-		{Key: "auto_ip", Label: "Re-auto IP", Hint: "yes = allocate next free from interface", Kind: fieldBool},
-		{Key: "allowed_ips", Label: "AllowedIPs", Hint: "valid CIDRs"},
-		{Key: "assigned_ips", Label: "Assigned IPs", Hint: "client addresses"},
+		{Key: "name", Label: "Name", Hint: "friendly name"},
+		{Key: "tunnel_ip", Label: "Tunnel IP", Hint: "press a for next free IP, or edit"},
 		{Key: "endpoint", Label: "Endpoint", Hint: "host:port"},
-		{Key: "keepalive", Label: "Keepalive", Hint: "25"},
+		{Key: "keepalive", Label: "Keepalive", Hint: "seconds"},
 		{Key: "notes", Label: "Notes", Hint: "optional"},
-		{Key: "traffic_limit", Label: "Traffic limit B", Hint: "0=unlimited"},
-		{Key: "bw_rx", Label: "BW RX bps", Hint: "0=unlimited"},
-		{Key: "bw_tx", Label: "BW TX bps", Hint: "0=unlimited"},
+		{Key: "traffic_limit", Label: "Quota (B)", Hint: "0 = unlimited"},
+		{Key: "bw_rx", Label: "BW RX bps", Hint: "0 = unlimited"},
+		{Key: "bw_tx", Label: "BW TX bps", Hint: "0 = unlimited"},
 	}
 }
 
 func truthy(s string) bool {
 	s = strings.ToLower(strings.TrimSpace(s))
-	return s == "y" || s == "yes" || s == "true" || s == "1"
+	return s == "y" || s == "yes" || s == "true" || s == "1" || s == "on"
+}
+
+// layout helpers used by root view
+func fillHeight(content string, width, height int) string {
+	if height < 1 {
+		height = 1
+	}
+	if width < 1 {
+		width = 1
+	}
+	style := lipgloss.NewStyle().Width(width).Height(height).MaxHeight(height)
+	return style.Render(content)
 }

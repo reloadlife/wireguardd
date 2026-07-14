@@ -38,17 +38,23 @@ func TestOpenPeerCreateForm(t *testing.T) {
 	m = nm.(rootModel)
 	require.Equal(t, modePeerForm, m.mode)
 	require.Equal(t, "wg0", m.form.Get("iface"))
-	require.Equal(t, "y", m.form.Get("auto_ip"))
+	// next free after 10.7.0.1 is .2
+	require.Equal(t, "10.7.0.2", m.form.Get("tunnel_ip"))
 }
 
-func TestResolvePeerIPsAuto(t *testing.T) {
+func TestResolvePeerIPsTunnelField(t *testing.T) {
 	m := newRootModel(Config{Endpoint: "http://localhost"})
 	m.ifaces = []pkgapi.Interface{{Name: "wg0", Addresses: []string{"10.7.0.1/24"}}}
 	m.peers = []pkgapi.Peer{{InterfaceName: "wg0", AssignedIPs: []string{"10.7.0.2"}, AllowedIPs: []string{"10.7.0.2/32"}}}
-	allowed, assigned, err := m.resolvePeerIPs("wg0", map[string]string{"auto_ip": "y"})
+	allowed, assigned, err := m.resolvePeerIPs("wg0", map[string]string{"tunnel_ip": ""})
 	require.NoError(t, err)
 	require.Equal(t, []string{"10.7.0.3"}, assigned)
 	require.Equal(t, []string{"10.7.0.3/32"}, allowed)
+
+	allowed, assigned, err = m.resolvePeerIPs("wg0", map[string]string{"tunnel_ip": "10.7.0.50"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"10.7.0.50"}, assigned)
+	require.Equal(t, []string{"10.7.0.50/32"}, allowed)
 }
 
 func TestEnterIfaceDetail(t *testing.T) {
