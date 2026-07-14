@@ -1112,7 +1112,11 @@ func (m rootModel) viewIfaceDetail() string {
 	kv("RX / TX", formatBytes(i.RxBytes)+" / "+formatBytes(i.TxBytes))
 	kv("RX/s TX/s", formatBps(i.RxBps)+" / "+formatBps(i.TxBps))
 	help := helpStyle.Render("esc back · e edit · u/d up/down · n add peer · x export · D delete")
-	return panelStyle.Render(titleStyle.Render("Interface "+i.Name) + "\n" + body.String() + "\n" + help)
+	content := titleStyle.Render("Interface "+i.Name) + "\n" + body.String() + "\n" + help
+	if m.width > 10 {
+		return panelStyle.Width(m.width - 4).Render(content)
+	}
+	return panelStyle.Render(content)
 }
 
 func (m rootModel) viewPeerDetail() string {
