@@ -120,16 +120,50 @@ Scrape `http://host:9091/metrics`. Metrics include per-interface and per-peer co
 
 SNMPv2c on UDP (default `:1161`). Community from config. OID base `1.3.6.1.4.1.66666.1` (placeholder PEN). MIB sketch: `deploy/mibs/WIREGUARDD-MIB.txt`.
 
-## Install (Linux)
+## Install
+
+### One-liner (release binaries)
+
+```bash
+# public (or already authenticated host)
+curl -fsSL https://raw.githubusercontent.com/reloadlife/wireguardd/main/scripts/install.sh | sudo bash
+
+# private repo — pass a token with `repo` (or `contents:read` + releases) scope
+curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
+  https://raw.githubusercontent.com/reloadlife/wireguardd/main/scripts/install.sh \
+  | sudo -E env GITHUB_TOKEN="$GITHUB_TOKEN" bash
+```
+
+Options:
+
+```bash
+# pin a version
+curl -fsSL …/install.sh | sudo bash -s -- --version v0.1.0
+
+# control panel only (also the default on macOS)
+curl -fsSL …/install.sh | sudo bash -s -- --ctl-only
+
+# custom prefix
+curl -fsSL …/install.sh | sudo bash -s -- --prefix /opt/wireguardd
+```
+
+### From a local build
 
 ```bash
 make build
-sudo ./scripts/install.sh
+sudo ./scripts/install.sh --local
 # edit /etc/wireguardd/config.yaml
 sudo systemctl enable --now wireguardd
 ```
 
-Requires `CAP_NET_ADMIN` (root) for real WireGuard operations. Package `wireguard-tools` recommended for `wg` / `wg-quick`.
+### Manual from GitHub Releases
+
+Download `wireguardd_*_linux_*.tar.gz` and `wireguardctl_*_*.tar.gz` from
+[Releases](https://github.com/reloadlife/wireguardd/releases), extract, and
+`install` the binaries into `/usr/local/bin`.
+
+Requires `CAP_NET_ADMIN` (root) for real WireGuard operations. Package
+`wireguard-tools` is recommended for `wg` / `wg-quick`.
 
 ## Development
 
