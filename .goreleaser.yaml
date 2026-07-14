@@ -1,0 +1,50 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: wireguardd
+    main: ./cmd/wireguardd
+    binary: wireguardd
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/reloadlife/wireguardd/internal/version.Version={{.Version}}
+      - -X github.com/reloadlife/wireguardd/internal/version.Commit={{.Commit}}
+      - -X github.com/reloadlife/wireguardd/internal/version.Date={{.Date}}
+
+  - id: wireguardctl
+    main: ./cmd/wireguardctl
+    binary: wireguardctl
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/reloadlife/wireguardd/internal/version.Version={{.Version}}
+      - -X github.com/reloadlife/wireguardd/internal/version.Commit={{.Commit}}
+      - -X github.com/reloadlife/wireguardd/internal/version.Date={{.Date}}
+
+archives:
+  - format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+      - configs/*
+      - deploy/*
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"

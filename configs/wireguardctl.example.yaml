@@ -1,0 +1,6 @@
+server:
+  url: "http://127.0.0.1:51880"
+  # unix: "/run/wireguardd/wireguardd.sock"
+  token: "change-me"
+
+refresh_interval: 2s

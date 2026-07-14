@@ -1,0 +1,38 @@
+# Binaries
+/bin/
+/dist/
+/wireguardd
+/wireguardctl
+*.exe
+*.test
+*.out
+
+# Coverage
+coverage.out
+coverage.html
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# Local state
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+/run/
+/var/
+
+# Secrets / local config
+configs/local*.yaml
+.env
+.env.*
+
+# Go
+vendor/
+
+# Agents (local)
+.agents/

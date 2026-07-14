@@ -1,0 +1,32 @@
+listen:
+  http: "127.0.0.1:51880"
+  # unix: "/run/wireguardd/wireguardd.sock"
+  metrics: "0.0.0.0:9091"
+
+snmp:
+  enabled: true
+  listen: "0.0.0.0:1161"
+  community: "public"
+  enterprise_oid: "1.3.6.1.4.1.66666.1"
+
+db:
+  path: "/var/lib/wireguardd/state.db"
+
+auth:
+  token: "change-me"
+
+wireguard:
+  conf_dir: "/etc/wireguard"
+  persistence: "hybrid" # database | wg-quick | hybrid
+  handshake_connected_sec: 180
+  sample_interval: 5s
+  reconcile_interval: 5s
+  allow_hooks: false
+  bandwidth_backend: "tc" # tc | nft | none
+  # use_mock_backend: true  # for dev without kernel module
+
+log:
+  level: info
+  format: json
+
+read_only: false

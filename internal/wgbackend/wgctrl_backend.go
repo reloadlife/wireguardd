@@ -1,0 +1,254 @@
+package wgbackend
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"time"
+
+	"golang.zx2c4.com/wireguard/wgctrl"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+)
+
+// HostBackend drives the real host via wgctrl + ip/wg/tc.
+type HostBackend struct {
+	client           *wgctrl.Client
+	runner           Runner
+	confDir          string
+	allowHooks       bool
+	bandwidthBackend string
+}
+
+// HostOptions configures HostBackend.
+type HostOptions struct {
+	ConfDir          string
+	AllowHooks       bool
+	BandwidthBackend string
+	Runner           Runner
+}
+
+// NewHostBackend opens wgctrl.
+func NewHostBackend(opts HostOptions) (*HostBackend, error) {
+	client, err := wgctrl.New()
+	if err != nil {
+		return nil, fmt.Errorf("wgctrl: %w", err)
+	}
+	r := opts.Runner
+	if r == nil {
+		r = ExecRunner{}
+	}
+	bw := opts.BandwidthBackend
+	if bw == "" {
+		bw = "tc"
+	}
+	return &HostBackend{
+		client:           client,
+		runner:           r,
+		confDir:          opts.ConfDir,
+		allowHooks:       opts.AllowHooks,
+		bandwidthBackend: bw,
+	}, nil
+}
+
+// Close implements Backend.
+func (b *HostBackend) Close() error {
+	return b.client.Close()
+}
+
+// Devices implements Backend.
+func (b *HostBackend) Devices(ctx context.Context) ([]Device, error) {
+	devs, err := b.client.Devices()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Device, 0, len(devs))
+	for _, d := range devs {
+		out = append(out, convertDevice(d))
+	}
+	return out, nil
+}
+
+// Device implements Backend.
+func (b *HostBackend) Device(ctx context.Context, name string) (*Device, error) {
+	d, err := b.client.Device(name)
+	if err != nil {
+		return nil, err
+	}
+	cd := convertDevice(d)
+	return &cd, nil
+}
+
+func convertDevice(d *wgtypes.Device) Device {
+	dev := Device{
+		Name:         d.Name,
+		PublicKey:    d.PublicKey.String(),
+		PrivateKey:   d.PrivateKey.String(),
+		ListenPort:   d.ListenPort,
+		FirewallMark: d.FirewallMark,
+		Up:           true, // presence implies configured; link state via ip if needed
+	}
+	for _, p := range d.Peers {
+		ep := ""
+		if p.Endpoint != nil {
+			ep = p.Endpoint.String()
+		}
+		allowed := make([]string, 0, len(p.AllowedIPs))
+		for _, a := range p.AllowedIPs {
+			allowed = append(allowed, a.String())
+		}
+		dev.Peers = append(dev.Peers, Peer{
+			PublicKey:                   p.PublicKey.String(),
+			PresharedKey:                p.PresharedKey.String(),
+			Endpoint:                    ep,
+			AllowedIPs:                  allowed,
+			PersistentKeepaliveInterval: p.PersistentKeepaliveInterval,
+			LastHandshakeTime:           p.LastHandshakeTime,
+			ReceiveBytes:                p.ReceiveBytes,
+			TransmitBytes:               p.TransmitBytes,
+		})
+	}
+	// refine Up from ip link
+	return dev
+}
+
+// EnsureInterface implements Backend.
+func (b *HostBackend) EnsureInterface(ctx context.Context, desired DesiredInterface) error {
+	if err := b.createLink(ctx, desired.Name); err != nil {
+		return err
+	}
+	priv, err := wgtypes.ParseKey(desired.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("private key: %w", err)
+	}
+	cfg := wgtypes.Config{
+		PrivateKey:   &priv,
+		ReplacePeers: false,
+	}
+	if desired.ListenPort > 0 {
+		p := desired.ListenPort
+		cfg.ListenPort = &p
+	}
+	if desired.FwMark > 0 {
+		f := desired.FwMark
+		cfg.FirewallMark = &f
+	}
+	if err := b.client.ConfigureDevice(desired.Name, cfg); err != nil {
+		return fmt.Errorf("configure device: %w", err)
+	}
+	if err := b.setMTU(ctx, desired.Name, desired.MTU); err != nil {
+		return err
+	}
+	if err := b.syncAddresses(ctx, desired.Name, desired.Addresses); err != nil {
+		return err
+	}
+	if desired.Enabled {
+		if err := b.setLinkUp(ctx, desired.Name, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RemoveInterface implements Backend.
+func (b *HostBackend) RemoveInterface(ctx context.Context, name string) error {
+	return b.deleteLink(ctx, name)
+}
+
+// SetUp implements Backend.
+func (b *HostBackend) SetUp(ctx context.Context, name string, up bool) error {
+	return b.setLinkUp(ctx, name, up)
+}
+
+// ApplyPeers implements Backend.
+func (b *HostBackend) ApplyPeers(ctx context.Context, iface string, peers []DesiredPeer) error {
+	cfgs := make([]wgtypes.PeerConfig, 0, len(peers))
+	for _, p := range peers {
+		pub, err := wgtypes.ParseKey(p.PublicKey)
+		if err != nil {
+			return fmt.Errorf("peer public key: %w", err)
+		}
+		pc := wgtypes.PeerConfig{
+			PublicKey:         pub,
+			ReplaceAllowedIPs: true,
+		}
+		if p.PresharedKey != "" {
+			psk, err := wgtypes.ParseKey(p.PresharedKey)
+			if err != nil {
+				return fmt.Errorf("peer psk: %w", err)
+			}
+			pc.PresharedKey = &psk
+		}
+		if p.Endpoint != "" {
+			udp, err := net.ResolveUDPAddr("udp", p.Endpoint)
+			if err != nil {
+				return fmt.Errorf("endpoint %s: %w", p.Endpoint, err)
+			}
+			pc.Endpoint = udp
+		}
+		ka := time.Duration(p.PersistentKeepalive) * time.Second
+		pc.PersistentKeepaliveInterval = &ka
+
+		if !p.Suspended {
+			for _, a := range p.AllowedIPs {
+				_, ipnet, err := net.ParseCIDR(a)
+				if err != nil {
+					// bare IP
+					ip := net.ParseIP(a)
+					if ip == nil {
+						return fmt.Errorf("allowed ip %s: %w", a, err)
+					}
+					if ip.To4() != nil {
+						ipnet = &net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}
+					} else {
+						ipnet = &net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}
+					}
+				}
+				pc.AllowedIPs = append(pc.AllowedIPs, *ipnet)
+			}
+		}
+		cfgs = append(cfgs, pc)
+	}
+	// Replace all peers to drop removed ones
+	cfg := wgtypes.Config{
+		ReplacePeers: true,
+		Peers:        cfgs,
+	}
+	if err := b.client.ConfigureDevice(iface, cfg); err != nil {
+		return fmt.Errorf("apply peers: %w", err)
+	}
+	return nil
+}
+
+// ApplySuspendRoutes implements Backend.
+func (b *HostBackend) ApplySuspendRoutes(ctx context.Context, iface string, peer DesiredPeer, suspend bool) error {
+	_ = iface
+	return b.applySuspendRoutes(ctx, peer, suspend)
+}
+
+// ApplyBandwidth implements Backend.
+func (b *HostBackend) ApplyBandwidth(ctx context.Context, iface string, peer DesiredPeer) error {
+	return b.applyTCBandwidth(ctx, iface, peer)
+}
+
+// ExportConf implements Backend.
+func (b *HostBackend) ExportConf(ctx context.Context, path string, content string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// RunHook implements Backend.
+func (b *HostBackend) RunHook(ctx context.Context, hook string) error {
+	if !b.allowHooks || hook == "" {
+		return nil
+	}
+	_, err := b.runner.Run(ctx, "sh", "-c", hook)
+	return err
+}

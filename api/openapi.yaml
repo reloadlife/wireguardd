@@ -1,0 +1,197 @@
+openapi: 3.0.3
+info:
+  title: wireguardd API
+  version: 0.1.0
+  description: REST API for WireGuard interface and peer management.
+servers:
+  - url: http://127.0.0.1:51880
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      security: []
+      summary: Liveness
+      responses:
+        "200":
+          description: OK
+  /readyz:
+    get:
+      security: []
+      summary: Readiness
+      responses:
+        "200":
+          description: Ready
+  /v1/version:
+    get:
+      summary: Version
+      responses:
+        "200":
+          description: Version info
+  /v1/interfaces:
+    get:
+      summary: List interfaces
+      responses:
+        "200":
+          description: Interface list
+    post:
+      summary: Create interface
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InterfaceCreateRequest"
+      responses:
+        "201":
+          description: Created
+  /v1/interfaces/{name}:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+    get:
+      summary: Get interface
+      responses:
+        "200":
+          description: Interface
+    patch:
+      summary: Update interface
+      responses:
+        "200":
+          description: Updated
+    delete:
+      summary: Delete interface
+      responses:
+        "204":
+          description: Deleted
+  /v1/interfaces/{name}/up:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+    post:
+      summary: Bring interface up
+      responses:
+        "200":
+          description: Up
+  /v1/interfaces/{name}/down:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+    post:
+      summary: Bring interface down
+      responses:
+        "200":
+          description: Down
+  /v1/interfaces/{name}/peers:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+    get:
+      summary: List peers
+      responses:
+        "200":
+          description: Peers
+    post:
+      summary: Create peer
+      responses:
+        "201":
+          description: Created
+  /v1/interfaces/{name}/peers/{pubkey}:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+      - $ref: "#/components/parameters/PubKey"
+    get:
+      summary: Get peer
+      responses:
+        "200":
+          description: Peer
+    patch:
+      summary: Update peer
+      responses:
+        "200":
+          description: Updated
+    delete:
+      summary: Delete peer
+      responses:
+        "204":
+          description: Deleted
+  /v1/interfaces/{name}/peers/{pubkey}/suspend:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/PubKey"
+      summary: Suspend peer
+      responses:
+        "200":
+          description: Suspended
+  /v1/interfaces/{name}/peers/{pubkey}/resume:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/PubKey"
+      summary: Resume peer
+      responses:
+        "200":
+          description: Resumed
+  /v1/stats:
+    get:
+      summary: Global stats
+      responses:
+        "200":
+          description: Stats
+  /v1/keys/generate:
+    post:
+      summary: Generate keys
+      responses:
+        "200":
+          description: Keys
+  /v1/events:
+    get:
+      summary: Events
+      responses:
+        "200":
+          description: Events
+  /v1/reconcile:
+    post:
+      summary: Force reconcile
+      responses:
+        "200":
+          description: OK
+  /metrics:
+    get:
+      security: []
+      summary: Prometheus metrics
+      responses:
+        "200":
+          description: Metrics
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    Name:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+    PubKey:
+      name: pubkey
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    InterfaceCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        listen_port:
+          type: integer
+        addresses:
+          type: array
+          items:
+            type: string
+        dns:
+          type: array
+          items:
+            type: string

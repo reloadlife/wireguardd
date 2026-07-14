@@ -1,0 +1,54 @@
+WIREGUARDD-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, Counter64, Gauge32, enterprises
+        FROM SNMPv2-SMI
+    DisplayString
+        FROM SNMPv2-TC;
+
+-- Placeholder private enterprise number 66666 — replace with a registered PEN.
+wireguardd MODULE-IDENTITY
+    LAST-UPDATED "202607140000Z"
+    ORGANIZATION "reloadlife"
+    CONTACT-INFO "https://github.com/reloadlife/wireguardd"
+    DESCRIPTION "WireGuard management daemon metrics"
+    ::= { enterprises 66666 1 }
+
+wgInterfaceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF WgInterfaceEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "WireGuard interfaces"
+    ::= { wireguardd 1 }
+
+-- Columns (conceptual):
+-- 1 name DisplayString
+-- 2 up Integer32
+-- 3 listenPort Integer32
+-- 4 peerCount Integer32
+-- 5 rxBytes Counter64
+-- 6 txBytes Counter64
+-- 7 rxBps Gauge32
+-- 8 txBps Gauge32
+
+wgPeerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF WgPeerEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "WireGuard peers"
+    ::= { wireguardd 2 }
+
+-- Columns (conceptual):
+-- 1 interface DisplayString
+-- 2 publicKey DisplayString
+-- 3 name DisplayString
+-- 4 endpoint DisplayString
+-- 5 connected Integer32
+-- 6 suspended Integer32
+-- 7 lastHandshake Integer32
+-- 8 rxBytes Counter64
+-- 9 txBytes Counter64
+-- 10 rxBps Gauge32
+-- 11 txBps Gauge32
+
+END
