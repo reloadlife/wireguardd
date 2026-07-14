@@ -92,19 +92,14 @@ esac
 
 # root for system paths
 if [[ "$(id -u)" -ne 0 ]]; then
-  if command -v sudo >/dev/null 2>&1; then
+  if command -v sudo >/dev/null 2>&1 && [[ -f "${BASH_SOURCE[0]:-}" ]]; then
     warn "re-exec with sudo for install to ${BIN_DIR}"
-    exec sudo -E env \
+    exec sudo -E \
       REPO="$REPO" VERSION="$VERSION" PREFIX="$PREFIX" BIN_DIR="$BIN_DIR" \
-      INSTALL_SYSTEMD="$INSTALL_SYSTEMD" CTL_ONLY="$CTL_ONLY" DAEMON_ONLY="$DAEMON_ONLY" \
-      LOCAL="$LOCAL" GITHUB_TOKEN="${GITHUB_TOKEN:-}" GH_TOKEN="${GH_TOKEN:-}" \
-      bash "$0" ${VERSION:+--version "$VERSION"} --prefix "$PREFIX" --bin-dir "$BIN_DIR" \
-      $([[ "$INSTALL_SYSTEMD" -eq 0 ]] && echo --no-systemd) \
-      $([[ "$CTL_ONLY" -eq 1 ]] && echo --ctl-only) \
-      $([[ "$DAEMON_ONLY" -eq 1 ]] && echo --daemon-only) \
-      $([[ "$LOCAL" -eq 1 ]] && echo --local)
+      GITHUB_TOKEN="${GITHUB_TOKEN:-}" GH_TOKEN="${GH_TOKEN:-}" \
+      bash "${BASH_SOURCE[0]}" "$@"
   fi
-  die "run as root (or install sudo)"
+  die "run as root: curl … | sudo bash   (or: sudo ./scripts/install.sh)"
 fi
 
 need_cmd curl
