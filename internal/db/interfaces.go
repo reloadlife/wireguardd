@@ -149,13 +149,13 @@ type scannable interface {
 
 func scanInterface(row scannable) (*Interface, error) {
 	var (
-		iface    Interface
-		tableID  sql.NullInt64
-		dns      string
-		addrs    string
-		enabled  int
-		created  string
-		updated  string
+		iface   Interface
+		tableID sql.NullInt64
+		dns     string
+		addrs   string
+		enabled int
+		created string
+		updated string
 	)
 	err := row.Scan(
 		&iface.ID, &iface.Name, &iface.PrivateKey, &iface.PublicKey, &iface.ListenPort,

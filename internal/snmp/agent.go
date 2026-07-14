@@ -100,10 +100,10 @@ func (a *Agent) loop() {
 
 // Variable is a simple OID binding.
 type Variable struct {
-	OID   OID
-	Type  byte // 0x02 integer, 0x04 octet, 0x41 counter32, 0x42 gauge32, 0x46 counter64
-	Int   int64
-	Str   string
+	OID  OID
+	Type byte // 0x02 integer, 0x04 octet, 0x41 counter32, 0x42 gauge32, 0x46 counter64
+	Int  int64
+	Str  string
 }
 
 func (a *Agent) snapshotVars() []Variable {

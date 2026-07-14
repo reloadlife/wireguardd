@@ -60,29 +60,29 @@ type InterfaceUpdateRequest struct {
 
 // Interface is the API representation of an interface.
 type Interface struct {
-	ID               int64    `json:"id"`
-	Name             string   `json:"name"`
-	PrivateKey       string   `json:"private_key,omitempty"`
-	PublicKey        string   `json:"public_key"`
-	ListenPort       int      `json:"listen_port"`
-	FwMark           int      `json:"fwmark"`
-	MTU              int      `json:"mtu"`
-	TableMode        string   `json:"table_mode"`
-	TableID          *int     `json:"table_id,omitempty"`
-	DNS              []string `json:"dns"`
-	Addresses        []string `json:"addresses"`
-	PreUp            string   `json:"pre_up,omitempty"`
-	PostUp           string   `json:"post_up,omitempty"`
-	PreDown          string   `json:"pre_down,omitempty"`
-	PostDown         string   `json:"post_down,omitempty"`
-	DefaultKeepalive int      `json:"default_keepalive"`
-	Enabled          bool     `json:"enabled"`
-	Up               bool     `json:"up"`
-	PeerCount        int      `json:"peer_count"`
-	RxBytes          int64    `json:"rx_bytes"`
-	TxBytes          int64    `json:"tx_bytes"`
-	RxBps            float64  `json:"rx_bps"`
-	TxBps            float64  `json:"tx_bps"`
+	ID               int64     `json:"id"`
+	Name             string    `json:"name"`
+	PrivateKey       string    `json:"private_key,omitempty"`
+	PublicKey        string    `json:"public_key"`
+	ListenPort       int       `json:"listen_port"`
+	FwMark           int       `json:"fwmark"`
+	MTU              int       `json:"mtu"`
+	TableMode        string    `json:"table_mode"`
+	TableID          *int      `json:"table_id,omitempty"`
+	DNS              []string  `json:"dns"`
+	Addresses        []string  `json:"addresses"`
+	PreUp            string    `json:"pre_up,omitempty"`
+	PostUp           string    `json:"post_up,omitempty"`
+	PreDown          string    `json:"pre_down,omitempty"`
+	PostDown         string    `json:"post_down,omitempty"`
+	DefaultKeepalive int       `json:"default_keepalive"`
+	Enabled          bool      `json:"enabled"`
+	Up               bool      `json:"up"`
+	PeerCount        int       `json:"peer_count"`
+	RxBytes          int64     `json:"rx_bytes"`
+	TxBytes          int64     `json:"tx_bytes"`
+	RxBps            float64   `json:"rx_bps"`
+	TxBps            float64   `json:"tx_bps"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }
@@ -122,30 +122,30 @@ type PeerUpdateRequest struct {
 
 // Peer is the API representation of a peer.
 type Peer struct {
-	ID                  int64    `json:"id"`
-	InterfaceName       string   `json:"interface_name"`
-	PublicKey           string   `json:"public_key"`
-	PresharedKey        string   `json:"preshared_key,omitempty"`
-	Name                string   `json:"name"`
-	Notes               string   `json:"notes"`
-	AllowedIPs          []string `json:"allowed_ips"`
-	AssignedIPs         []string `json:"assigned_ips"`
-	Endpoint            string   `json:"endpoint"`
-	PersistentKeepalive int      `json:"persistent_keepalive"`
-	Suspended           bool     `json:"suspended"`
-	TrafficLimitBytes   int64    `json:"traffic_limit_bytes"`
-	BandwidthRxBps      int64    `json:"bandwidth_rx_bps"`
-	BandwidthTxBps      int64    `json:"bandwidth_tx_bps"`
-	FirstHandshakeAt    string   `json:"first_handshake_at,omitempty"`
-	LastHandshakeAt     string   `json:"last_handshake_at,omitempty"`
-	ConnectedSince      string   `json:"connected_since,omitempty"`
-	LastEndpoint        string   `json:"last_endpoint,omitempty"`
-	RxBytes             int64    `json:"rx_bytes"`
-	TxBytes             int64    `json:"tx_bytes"`
-	RxBps               float64  `json:"rx_bps"`
-	TxBps               float64  `json:"tx_bps"`
-	Connected           bool     `json:"connected"`
-	Tags                []string `json:"tags"`
+	ID                  int64     `json:"id"`
+	InterfaceName       string    `json:"interface_name"`
+	PublicKey           string    `json:"public_key"`
+	PresharedKey        string    `json:"preshared_key,omitempty"`
+	Name                string    `json:"name"`
+	Notes               string    `json:"notes"`
+	AllowedIPs          []string  `json:"allowed_ips"`
+	AssignedIPs         []string  `json:"assigned_ips"`
+	Endpoint            string    `json:"endpoint"`
+	PersistentKeepalive int       `json:"persistent_keepalive"`
+	Suspended           bool      `json:"suspended"`
+	TrafficLimitBytes   int64     `json:"traffic_limit_bytes"`
+	BandwidthRxBps      int64     `json:"bandwidth_rx_bps"`
+	BandwidthTxBps      int64     `json:"bandwidth_tx_bps"`
+	FirstHandshakeAt    string    `json:"first_handshake_at,omitempty"`
+	LastHandshakeAt     string    `json:"last_handshake_at,omitempty"`
+	ConnectedSince      string    `json:"connected_since,omitempty"`
+	LastEndpoint        string    `json:"last_endpoint,omitempty"`
+	RxBytes             int64     `json:"rx_bytes"`
+	TxBytes             int64     `json:"tx_bytes"`
+	RxBps               float64   `json:"rx_bps"`
+	TxBps               float64   `json:"tx_bps"`
+	Connected           bool      `json:"connected"`
+	Tags                []string  `json:"tags"`
 	CreatedAt           time.Time `json:"created_at"`
 	UpdatedAt           time.Time `json:"updated_at"`
 }

@@ -26,15 +26,15 @@ type Config struct {
 
 // Reconciler applies desired state and samples stats.
 type Reconciler struct {
-	store  *db.Store
+	store   *db.Store
 	backend wgbackend.Backend
-	cache  *stats.Cache
-	cfg    Config
-	log    *slog.Logger
+	cache   *stats.Cache
+	cfg     Config
+	log     *slog.Logger
 
-	mu       sync.Mutex
+	mu         sync.Mutex
 	prevSample map[string]stats.Sample // peer id key iface/pub
-	lastErr  error
+	lastErr    error
 }
 
 // New creates a reconciler.

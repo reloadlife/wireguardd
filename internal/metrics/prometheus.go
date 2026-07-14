@@ -56,14 +56,14 @@ func (c *Collector) ObserveReconcile(d time.Duration, err error) {
 type cacheCollector struct {
 	cache *stats.Cache
 
-	ifaceUp      *prometheus.Desc
-	ifacePeers   *prometheus.Desc
-	ifacePort    *prometheus.Desc
-	ifaceRx      *prometheus.Desc
-	ifaceTx      *prometheus.Desc
-	ifaceRxBps   *prometheus.Desc
-	ifaceTxBps   *prometheus.Desc
-	ifaceInfo    *prometheus.Desc
+	ifaceUp    *prometheus.Desc
+	ifacePeers *prometheus.Desc
+	ifacePort  *prometheus.Desc
+	ifaceRx    *prometheus.Desc
+	ifaceTx    *prometheus.Desc
+	ifaceRxBps *prometheus.Desc
+	ifaceTxBps *prometheus.Desc
+	ifaceInfo  *prometheus.Desc
 
 	peerHandshake *prometheus.Desc
 	peerAge       *prometheus.Desc
@@ -84,31 +84,31 @@ type cacheCollector struct {
 
 func newCacheCollector(cache *stats.Cache) *cacheCollector {
 	return &cacheCollector{
-		cache: cache,
-		ifaceUp: prometheus.NewDesc("wireguard_interface_up", "Interface operstate", []string{"interface"}, nil),
+		cache:      cache,
+		ifaceUp:    prometheus.NewDesc("wireguard_interface_up", "Interface operstate", []string{"interface"}, nil),
 		ifacePeers: prometheus.NewDesc("wireguard_interface_peers", "Peer count", []string{"interface"}, nil),
-		ifacePort: prometheus.NewDesc("wireguard_interface_listen_port", "Listen port", []string{"interface"}, nil),
-		ifaceRx: prometheus.NewDesc("wireguard_interface_receive_bytes_total", "Interface RX bytes", []string{"interface"}, nil),
-		ifaceTx: prometheus.NewDesc("wireguard_interface_transmit_bytes_total", "Interface TX bytes", []string{"interface"}, nil),
+		ifacePort:  prometheus.NewDesc("wireguard_interface_listen_port", "Listen port", []string{"interface"}, nil),
+		ifaceRx:    prometheus.NewDesc("wireguard_interface_receive_bytes_total", "Interface RX bytes", []string{"interface"}, nil),
+		ifaceTx:    prometheus.NewDesc("wireguard_interface_transmit_bytes_total", "Interface TX bytes", []string{"interface"}, nil),
 		ifaceRxBps: prometheus.NewDesc("wireguard_interface_receive_bytes_per_second", "Interface RX rate", []string{"interface"}, nil),
 		ifaceTxBps: prometheus.NewDesc("wireguard_interface_transmit_bytes_per_second", "Interface TX rate", []string{"interface"}, nil),
-		ifaceInfo: prometheus.NewDesc("wireguard_interface_info", "Interface info", []string{"interface", "public_key"}, nil),
+		ifaceInfo:  prometheus.NewDesc("wireguard_interface_info", "Interface info", []string{"interface", "public_key"}, nil),
 
 		peerHandshake: prometheus.NewDesc("wireguard_peer_last_handshake_seconds", "Last handshake unix", []string{"interface", "public_key"}, nil),
-		peerAge: prometheus.NewDesc("wireguard_peer_handshake_age_seconds", "Handshake age", []string{"interface", "public_key"}, nil),
-		peerConn: prometheus.NewDesc("wireguard_peer_connected", "Peer connected", []string{"interface", "public_key"}, nil),
+		peerAge:       prometheus.NewDesc("wireguard_peer_handshake_age_seconds", "Handshake age", []string{"interface", "public_key"}, nil),
+		peerConn:      prometheus.NewDesc("wireguard_peer_connected", "Peer connected", []string{"interface", "public_key"}, nil),
 		peerConnSince: prometheus.NewDesc("wireguard_peer_connected_since_seconds", "Connected since unix", []string{"interface", "public_key"}, nil),
-		peerRx: prometheus.NewDesc("wireguard_peer_receive_bytes_total", "Peer RX bytes", []string{"interface", "public_key"}, nil),
-		peerTx: prometheus.NewDesc("wireguard_peer_transmit_bytes_total", "Peer TX bytes", []string{"interface", "public_key"}, nil),
-		peerRxBps: prometheus.NewDesc("wireguard_peer_receive_bytes_per_second", "Peer RX rate", []string{"interface", "public_key"}, nil),
-		peerTxBps: prometheus.NewDesc("wireguard_peer_transmit_bytes_per_second", "Peer TX rate", []string{"interface", "public_key"}, nil),
-		peerSusp: prometheus.NewDesc("wireguard_peer_suspended", "Peer suspended", []string{"interface", "public_key"}, nil),
-		peerLimit: prometheus.NewDesc("wireguard_peer_traffic_limit_bytes", "Traffic limit", []string{"interface", "public_key"}, nil),
-		peerBwRx: prometheus.NewDesc("wireguard_peer_bandwidth_rx_limit_bps", "RX bandwidth limit", []string{"interface", "public_key"}, nil),
-		peerBwTx: prometheus.NewDesc("wireguard_peer_bandwidth_tx_limit_bps", "TX bandwidth limit", []string{"interface", "public_key"}, nil),
-		peerInfo: prometheus.NewDesc("wireguard_peer_info", "Peer info", []string{"interface", "public_key", "name", "endpoint"}, nil),
-		peerAllowed: prometheus.NewDesc("wireguard_peer_allowed_ips", "Allowed IP", []string{"interface", "public_key", "allowed_ip"}, nil),
-		peerEndpoint: prometheus.NewDesc("wireguard_peer_endpoint_info", "Endpoint", []string{"interface", "public_key", "endpoint"}, nil),
+		peerRx:        prometheus.NewDesc("wireguard_peer_receive_bytes_total", "Peer RX bytes", []string{"interface", "public_key"}, nil),
+		peerTx:        prometheus.NewDesc("wireguard_peer_transmit_bytes_total", "Peer TX bytes", []string{"interface", "public_key"}, nil),
+		peerRxBps:     prometheus.NewDesc("wireguard_peer_receive_bytes_per_second", "Peer RX rate", []string{"interface", "public_key"}, nil),
+		peerTxBps:     prometheus.NewDesc("wireguard_peer_transmit_bytes_per_second", "Peer TX rate", []string{"interface", "public_key"}, nil),
+		peerSusp:      prometheus.NewDesc("wireguard_peer_suspended", "Peer suspended", []string{"interface", "public_key"}, nil),
+		peerLimit:     prometheus.NewDesc("wireguard_peer_traffic_limit_bytes", "Traffic limit", []string{"interface", "public_key"}, nil),
+		peerBwRx:      prometheus.NewDesc("wireguard_peer_bandwidth_rx_limit_bps", "RX bandwidth limit", []string{"interface", "public_key"}, nil),
+		peerBwTx:      prometheus.NewDesc("wireguard_peer_bandwidth_tx_limit_bps", "TX bandwidth limit", []string{"interface", "public_key"}, nil),
+		peerInfo:      prometheus.NewDesc("wireguard_peer_info", "Peer info", []string{"interface", "public_key", "name", "endpoint"}, nil),
+		peerAllowed:   prometheus.NewDesc("wireguard_peer_allowed_ips", "Allowed IP", []string{"interface", "public_key", "allowed_ip"}, nil),
+		peerEndpoint:  prometheus.NewDesc("wireguard_peer_endpoint_info", "Endpoint", []string{"interface", "public_key", "endpoint"}, nil),
 	}
 }
 

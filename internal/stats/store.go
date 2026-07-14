@@ -7,7 +7,7 @@ import (
 
 // Cache holds the latest rates and counters for metrics/SNMP/API.
 type Cache struct {
-	mu   sync.RWMutex
+	mu     sync.RWMutex
 	ifaces map[string]*IfaceStats
 	peers  map[string]*PeerStats // key: iface/pubkey
 }
@@ -28,23 +28,23 @@ type IfaceStats struct {
 
 // PeerStats is per-peer stats.
 type PeerStats struct {
-	Interface           string
-	PublicKey           string
-	Name                string
-	Endpoint            string
-	AllowedIPs          []string
-	LastHandshake       time.Time
-	Connected           bool
-	ConnectedSince      time.Time
-	RxBytes             int64
-	TxBytes             int64
-	RxBps               float64
-	TxBps               float64
-	Suspended           bool
-	TrafficLimitBytes   int64
-	BandwidthRxBps      int64
-	BandwidthTxBps      int64
-	UpdatedAt           time.Time
+	Interface         string
+	PublicKey         string
+	Name              string
+	Endpoint          string
+	AllowedIPs        []string
+	LastHandshake     time.Time
+	Connected         bool
+	ConnectedSince    time.Time
+	RxBytes           int64
+	TxBytes           int64
+	RxBps             float64
+	TxBps             float64
+	Suspended         bool
+	TrafficLimitBytes int64
+	BandwidthRxBps    int64
+	BandwidthTxBps    int64
+	UpdatedAt         time.Time
 }
 
 // NewCache creates an empty cache.

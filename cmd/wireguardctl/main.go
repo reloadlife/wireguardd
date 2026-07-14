@@ -218,8 +218,8 @@ func peerCmd(configPath *string) *cobra.Command {
 	cmd.AddCommand(createCmd)
 
 	cmd.AddCommand(&cobra.Command{
-		Use:   "suspend [iface] [pubkey]",
-		Args:  cobra.ExactArgs(2),
+		Use:  "suspend [iface] [pubkey]",
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, c, err := loadClient(*configPath)
 			if err != nil {
@@ -229,8 +229,8 @@ func peerCmd(configPath *string) *cobra.Command {
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
-		Use:   "resume [iface] [pubkey]",
-		Args:  cobra.ExactArgs(2),
+		Use:  "resume [iface] [pubkey]",
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, c, err := loadClient(*configPath)
 			if err != nil {
@@ -240,8 +240,8 @@ func peerCmd(configPath *string) *cobra.Command {
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
-		Use:   "delete [iface] [pubkey]",
-		Args:  cobra.ExactArgs(2),
+		Use:  "delete [iface] [pubkey]",
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, c, err := loadClient(*configPath)
 			if err != nil {

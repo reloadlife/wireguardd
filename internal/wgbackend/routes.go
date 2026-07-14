@@ -46,9 +46,7 @@ func (b *HostBackend) applySuspendRoutes(ctx context.Context, peer DesiredPeer, 
 	ips := peer.AssignedIPs
 	if len(ips) == 0 {
 		// Fall back to host-sized AllowedIPs
-		for _, a := range peer.AllowedIPs {
-			ips = append(ips, a)
-		}
+		ips = append(ips, peer.AllowedIPs...)
 	}
 	for _, ip := range ips {
 		if err := b.blackholeCIDR(ctx, ip, suspend); err != nil {
