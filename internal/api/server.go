@@ -84,6 +84,10 @@ func (s *Server) Router() http.Handler {
 
 		r.Post("/keys/generate", s.handleKeysGenerate)
 
+		// Attach to already-running host WireGuard without tearing it down.
+		r.Get("/discover", s.handleDiscover)
+		r.Post("/adopt", s.handleAdopt)
+
 		r.Get("/interfaces", s.handleListInterfaces)
 		r.Post("/interfaces", s.handleCreateInterface)
 		r.Get("/interfaces/{name}", s.handleGetInterface)

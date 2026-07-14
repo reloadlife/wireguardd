@@ -308,6 +308,32 @@ func (c *Client) PeerClientConfig(ctx context.Context, iface, pubkey string) (st
 	return out.Config, nil
 }
 
+// Discover previews live host WireGuard interfaces for adoption.
+func (c *Client) Discover(ctx context.Context, names ...string) (*AdoptReport, error) {
+	var out AdoptReport
+	path := "/v1/discover"
+	if len(names) > 0 {
+		q := url.Values{}
+		for _, n := range names {
+			q.Add("name", n)
+		}
+		path += "?" + q.Encode()
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Adopt imports live host WireGuard into the daemon DB without breaking host state.
+func (c *Client) Adopt(ctx context.Context, req AdoptRequest) (*AdoptReport, error) {
+	var out AdoptReport
+	if err := c.do(ctx, http.MethodPost, "/v1/adopt", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // GenerateKeys generates keys.
 func (c *Client) GenerateKeys(ctx context.Context, typ string) (*KeyGenerateResponse, error) {
 	var out KeyGenerateResponse

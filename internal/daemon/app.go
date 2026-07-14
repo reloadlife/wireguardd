@@ -14,6 +14,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/reloadlife/wireguardd/internal/adopt"
 	"github.com/reloadlife/wireguardd/internal/api"
 	"github.com/reloadlife/wireguardd/internal/config"
 	"github.com/reloadlife/wireguardd/internal/db"
@@ -82,6 +83,22 @@ func (a *App) Run(ctx context.Context) error {
 		AllowHooks:            a.cfg.WireGuard.AllowHooks,
 	}, a.log)
 	rec.SetMetrics(collector)
+
+	// Attach to already-running host WireGuard (DB empty → import live devices).
+	if a.cfg.WireGuard.AdoptOnStart {
+		svc := adopt.New(store, backend, a.cfg.WireGuard.ConfDir, a.log)
+		rep, err := svc.Adopt(ctx, adopt.Options{ReadConf: true, Overwrite: false})
+		if err != nil {
+			a.log.Error("adopt_on_start failed", "err", err)
+		} else {
+			for _, r := range rep.Results {
+				a.log.Info("adopt_on_start",
+					"iface", r.Name, "action", r.Action,
+					"peers", r.PeerCount, "has_private_key", r.HasPrivateKey,
+					"conf_loaded", r.ConfLoaded)
+			}
+		}
+	}
 
 	srvAPI := api.NewServer(store, backend, cache, rec, a.cfg, a.log)
 	handler := srvAPI.Router()

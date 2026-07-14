@@ -10,9 +10,11 @@ import (
 type Device struct {
 	Name         string
 	PublicKey    string
-	PrivateKey   string
+	PrivateKey   string // may be empty/zero if unreadable
 	ListenPort   int
 	FirewallMark int
+	MTU          int
+	Addresses    []string // tunnel addresses from the link (ip addr)
 	Peers        []Peer
 	Up           bool
 }
@@ -20,13 +22,21 @@ type Device struct {
 // Peer is live peer state.
 type Peer struct {
 	PublicKey                   string
-	PresharedKey                string
+	PresharedKey                string // empty if zero/unset
 	Endpoint                    string
 	AllowedIPs                  []string
 	PersistentKeepaliveInterval time.Duration
 	LastHandshakeTime           time.Time
 	ReceiveBytes                int64
 	TransmitBytes               int64
+}
+
+// ZeroKey is the all-zero WireGuard key (unset private/preshared key as reported by the kernel).
+const ZeroKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+// IsZeroKey reports whether k is empty or the WireGuard zero key.
+func IsZeroKey(k string) bool {
+	return k == "" || k == ZeroKey
 }
 
 // DesiredInterface is the desired interface configuration to apply.

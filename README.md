@@ -40,6 +40,34 @@ Both use `temp_store=MEMORY`, 10 s busy timeout, incremental auto-vacuum (new 
 | Observability | Prometheus metrics, SNMPv2c agent, audit/enforcement events |
 | Keys | Generate keypairs and PSKs |
 
+## Attach to an existing WireGuard host
+
+wireguardd can run on a machine that **already has WireGuard up** and adopt those
+interfaces without tearing them down:
+
+```bash
+# Preview what the daemon sees on the host
+wireguardctl discover
+
+# Import live devices + peers into the DB (merges /etc/wireguard/*.conf for keys)
+wireguardctl adopt
+# wireguardctl adopt --name wg0 --overwrite
+
+# Or on every daemon start:
+#   wireguard.adopt_on_start: true
+```
+
+| Behaviour | Detail |
+|-----------|--------|
+| Non-destructive | Does not delete host peers, addresses, routes, or qdiscs on adopt |
+| Private keys | Taken from kernel when readable, else from `conf_dir/<iface>.conf`; may be empty |
+| Empty private key | Stats, peers, suspend, bandwidth still work; conf export / key rotation skipped |
+| `table_mode` | Defaults to **`off`** on adopt (won't rewrite routing until you change it) |
+| DNS | Only applied if conf/DB has DNS servers (won't clear host DNS otherwise) |
+| Reconcile | Re-applies DB desired state gently (no private-key write if blank; no addr wipe if empty) |
+
+API: `GET /v1/discover`, `POST /v1/adopt`.
+
 ## Quick start
 
 ```bash
@@ -63,6 +91,7 @@ wireguard:
   persistence: "hybrid"
   use_mock_backend: true
   bandwidth_backend: "none"
+  adopt_on_start: false
 log:
   level: info
   format: text
@@ -77,6 +106,10 @@ export WIREGUARDCTL_URL=http://127.0.0.1:51880
 ./bin/wireguardctl keys gen
 ./bin/wireguardctl peer create --iface wg0 --name alice --allowed-ip 10.7.0.2/32 --client-key --psk
 # set public_endpoint on the interface for client conf/QR (PATCH /v1/interfaces/wg0)
+
+# On a real host with WireGuard already running:
+# ./bin/wireguardctl discover
+# ./bin/wireguardctl adopt
 ./bin/wireguardctl peer client-config wg0 <PUB>
 ./bin/wireguardctl stats
 
@@ -159,6 +192,8 @@ Bearer token required on `/v1/*`. OpenAPI: [`api/openapi.yaml`](api/openapi.yaml
 | POST | `/v1/interfaces/{name}/peers` | Add peer |
 | POST | `/v1/interfaces/{name}/peers/{pubkey}/suspend` | Suspend |
 | GET | `/v1/stats` | Rollup (totals + rates) |
+| GET | `/v1/discover` | Preview live host WireGuard |
+| POST | `/v1/adopt` | Import live WireGuard into DB (non-destructive) |
 | GET | `/v1/interfaces/{name}/peers/{pubkey}/traffic` | Dual counters + sample history |
 | POST | `/v1/keys/generate` | Keys |
 | GET | `/metrics` | Prometheus |

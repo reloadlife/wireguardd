@@ -38,6 +38,8 @@ type DaemonConfig struct {
 		BandwidthBackend      string `mapstructure:"bandwidth_backend"`
 		DNSBackend            string `mapstructure:"dns_backend"` // auto | resolvectl | resolvconf | none
 		UseMockBackend        bool   `mapstructure:"use_mock_backend"`
+		// AdoptOnStart imports live WireGuard devices into the DB on boot (non-destructive).
+		AdoptOnStart bool `mapstructure:"adopt_on_start"`
 	} `mapstructure:"wireguard"`
 	Log struct {
 		Level  string `mapstructure:"level"`
@@ -108,6 +110,7 @@ func setDaemonDefaults(v *viper.Viper) {
 	v.SetDefault("wireguard.bandwidth_backend", "tc")
 	v.SetDefault("wireguard.dns_backend", "auto")
 	v.SetDefault("wireguard.use_mock_backend", false)
+	v.SetDefault("wireguard.adopt_on_start", false)
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
 	v.SetDefault("read_only", false)

@@ -88,7 +88,7 @@ func (b *HostBackend) Devices(ctx context.Context) ([]Device, error) {
 	}
 	out := make([]Device, 0, len(devs))
 	for _, d := range devs {
-		out = append(out, convertDevice(d))
+		out = append(out, b.enrichDevice(ctx, convertDevice(d)))
 	}
 	return out, nil
 }
@@ -102,18 +102,22 @@ func (b *HostBackend) Device(ctx context.Context, name string) (*Device, error) 
 	if err != nil {
 		return nil, err
 	}
-	cd := convertDevice(d)
+	cd := b.enrichDevice(ctx, convertDevice(d))
 	return &cd, nil
 }
 
 func convertDevice(d *wgtypes.Device) Device {
+	priv := d.PrivateKey.String()
+	if IsZeroKey(priv) {
+		priv = ""
+	}
 	dev := Device{
 		Name:         d.Name,
 		PublicKey:    d.PublicKey.String(),
-		PrivateKey:   d.PrivateKey.String(),
+		PrivateKey:   priv,
 		ListenPort:   d.ListenPort,
 		FirewallMark: d.FirewallMark,
-		Up:           true, // presence implies configured; link state via ip if needed
+		Up:           true,
 	}
 	for _, p := range d.Peers {
 		ep := ""
@@ -124,9 +128,13 @@ func convertDevice(d *wgtypes.Device) Device {
 		for _, a := range p.AllowedIPs {
 			allowed = append(allowed, a.String())
 		}
+		psk := p.PresharedKey.String()
+		if IsZeroKey(psk) {
+			psk = ""
+		}
 		dev.Peers = append(dev.Peers, Peer{
 			PublicKey:                   p.PublicKey.String(),
-			PresharedKey:                p.PresharedKey.String(),
+			PresharedKey:                psk,
 			Endpoint:                    ep,
 			AllowedIPs:                  allowed,
 			PersistentKeepaliveInterval: p.PersistentKeepaliveInterval,
@@ -135,11 +143,26 @@ func convertDevice(d *wgtypes.Device) Device {
 			TransmitBytes:               p.TransmitBytes,
 		})
 	}
-	// refine Up from ip link
+	return dev
+}
+
+// enrichDevice adds link operstate, MTU, and addresses from ip(8).
+func (b *HostBackend) enrichDevice(ctx context.Context, dev Device) Device {
+	if b.runner != nil {
+		if addrs, err := b.listAddresses(ctx, dev.Name); err == nil {
+			dev.Addresses = addrs
+		}
+		dev.Up = b.linkIsUp(ctx, dev.Name)
+		if mtu := b.linkMTU(ctx, dev.Name); mtu > 0 {
+			dev.MTU = mtu
+		}
+	}
 	return dev
 }
 
 // EnsureInterface implements Backend.
+// Soft-apply: empty private key / empty address list leave host values untouched
+// so adopting an existing interface never wipes keys or addresses.
 func (b *HostBackend) EnsureInterface(ctx context.Context, desired DesiredInterface) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -147,13 +170,13 @@ func (b *HostBackend) EnsureInterface(ctx context.Context, desired DesiredInterf
 	if err := b.createLink(ctx, desired.Name); err != nil {
 		return err
 	}
-	priv, err := wgtypes.ParseKey(desired.PrivateKey)
-	if err != nil {
-		return fmt.Errorf("private key: %w", err)
-	}
-	cfg := wgtypes.Config{
-		PrivateKey:   &priv,
-		ReplacePeers: false,
+	cfg := wgtypes.Config{ReplacePeers: false}
+	if !IsZeroKey(desired.PrivateKey) {
+		priv, err := wgtypes.ParseKey(desired.PrivateKey)
+		if err != nil {
+			return fmt.Errorf("private key: %w", err)
+		}
+		cfg.PrivateKey = &priv
 	}
 	if desired.ListenPort > 0 {
 		p := desired.ListenPort
@@ -163,14 +186,20 @@ func (b *HostBackend) EnsureInterface(ctx context.Context, desired DesiredInterf
 		f := desired.FwMark
 		cfg.FirewallMark = &f
 	}
-	if err := b.client.ConfigureDevice(desired.Name, cfg); err != nil {
-		return fmt.Errorf("configure device: %w", err)
+	// Only call ConfigureDevice when there is something to set (avoid no-op errors).
+	if cfg.PrivateKey != nil || cfg.ListenPort != nil || cfg.FirewallMark != nil {
+		if err := b.client.ConfigureDevice(desired.Name, cfg); err != nil {
+			return fmt.Errorf("configure device: %w", err)
+		}
 	}
 	if err := b.setMTU(ctx, desired.Name, desired.MTU); err != nil {
 		return err
 	}
-	if err := b.syncAddresses(ctx, desired.Name, desired.Addresses); err != nil {
-		return err
+	// Empty Addresses means "do not manage addresses" (adopt path).
+	if len(desired.Addresses) > 0 {
+		if err := b.syncAddresses(ctx, desired.Name, desired.Addresses); err != nil {
+			return err
+		}
 	}
 	if desired.Enabled {
 		if err := b.setLinkUp(ctx, desired.Name, true); err != nil {

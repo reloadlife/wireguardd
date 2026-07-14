@@ -12,6 +12,30 @@ func (b *HostBackend) linkExists(ctx context.Context, name string) bool {
 	return err == nil
 }
 
+func (b *HostBackend) linkIsUp(ctx context.Context, name string) bool {
+	out, err := b.runner.Run(ctx, "ip", "-o", "link", "show", "dev", name)
+	if err != nil {
+		return false
+	}
+	// e.g. "2: wg0: <POINTOPOINT,NOARP,UP,LOWER_UP> ..."
+	return strings.Contains(out, ",UP") || strings.Contains(out, "<UP")
+}
+
+func (b *HostBackend) linkMTU(ctx context.Context, name string) int {
+	out, err := b.runner.Run(ctx, "ip", "-o", "link", "show", "dev", name)
+	if err != nil {
+		return 0
+	}
+	fields := strings.Fields(out)
+	for i := 0; i < len(fields)-1; i++ {
+		if fields[i] == "mtu" {
+			n, _ := strconv.Atoi(fields[i+1])
+			return n
+		}
+	}
+	return 0
+}
+
 func (b *HostBackend) createLink(ctx context.Context, name string) error {
 	if b.linkExists(ctx, name) {
 		return nil
@@ -72,6 +96,10 @@ func (b *HostBackend) listAddresses(ctx context.Context, name string) ([]string,
 }
 
 func (b *HostBackend) syncAddresses(ctx context.Context, name string, desired []string) error {
+	// Nil/empty desired = do not manage addresses (critical for adopt-without-break).
+	if len(desired) == 0 {
+		return nil
+	}
 	current, err := b.listAddresses(ctx, name)
 	if err != nil {
 		// Interface may be brand new.

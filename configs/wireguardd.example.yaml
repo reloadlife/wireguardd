@@ -41,6 +41,9 @@ wireguard:
   #   none        — store/export only
   dns_backend: "auto"
   # use_mock_backend: true  # for dev without kernel module (required if wgctrl unavailable)
+  # On boot, import already-running WireGuard interfaces into the DB without
+  # tearing them down (also: wireguardctl discover / wireguardctl adopt).
+  adopt_on_start: false
 
 log:
   level: info

@@ -81,9 +81,22 @@ func (m *MockBackend) EnsureInterface(ctx context.Context, desired DesiredInterf
 		d = &Device{Name: desired.Name}
 		m.DevicesM[desired.Name] = d
 	}
-	d.PrivateKey = desired.PrivateKey
-	d.ListenPort = desired.ListenPort
-	d.FirewallMark = desired.FwMark
+	// Soft: only overwrite private key when provided (adopt-safe).
+	if !IsZeroKey(desired.PrivateKey) {
+		d.PrivateKey = desired.PrivateKey
+	}
+	if desired.ListenPort > 0 {
+		d.ListenPort = desired.ListenPort
+	}
+	if desired.FwMark > 0 {
+		d.FirewallMark = desired.FwMark
+	}
+	if desired.MTU > 0 {
+		d.MTU = desired.MTU
+	}
+	if len(desired.Addresses) > 0 {
+		d.Addresses = append([]string(nil), desired.Addresses...)
+	}
 	d.Up = desired.Enabled
 	return nil
 }

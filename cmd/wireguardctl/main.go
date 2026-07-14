@@ -32,6 +32,8 @@ func main() {
 		statsCmd(&configPath),
 		eventsCmd(&configPath),
 		keysCmd(&configPath),
+		discoverCmd(&configPath),
+		adoptCmd(&configPath),
 		tuiCmd(&configPath),
 	)
 	if err := root.Execute(); err != nil {
@@ -316,6 +318,66 @@ func eventsCmd(configPath *string) *cobra.Command {
 			return printJSON(ev)
 		},
 	}
+}
+
+func discoverCmd(configPath *string) *cobra.Command {
+	var names []string
+	cmd := &cobra.Command{
+		Use:   "discover",
+		Short: "Preview live host WireGuard interfaces (no changes)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, c, err := loadClient(*configPath)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			rep, err := c.Discover(ctx, names...)
+			if err != nil {
+				return err
+			}
+			return printJSON(rep)
+		},
+	}
+	cmd.Flags().StringSliceVar(&names, "name", nil, "limit to interface name(s)")
+	return cmd
+}
+
+func adoptCmd(configPath *string) *cobra.Command {
+	var names []string
+	var overwrite bool
+	var noConf bool
+	cmd := &cobra.Command{
+		Use:   "adopt",
+		Short: "Import live host WireGuard into wireguardd without breaking it",
+		Long: `Adopt attaches wireguardd to already-running WireGuard interfaces.
+
+It imports live peers/addresses into the DB (and merges /etc/wireguard/*.conf
+when available). Host state is not torn down: missing private keys are OK for
+monitoring; set table_mode later if you want route management.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, c, err := loadClient(*configPath)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			readConf := !noConf
+			rep, err := c.Adopt(ctx, pkgapi.AdoptRequest{
+				Names:     names,
+				ReadConf:  &readConf,
+				Overwrite: overwrite,
+			})
+			if err != nil {
+				return err
+			}
+			return printJSON(rep)
+		},
+	}
+	cmd.Flags().StringSliceVar(&names, "name", nil, "limit to interface name(s)")
+	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "refresh interfaces already in the DB")
+	cmd.Flags().BoolVar(&noConf, "no-conf", false, "do not read /etc/wireguard/*.conf")
+	return cmd
 }
 
 func keysCmd(configPath *string) *cobra.Command {

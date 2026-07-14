@@ -206,7 +206,9 @@ func (r *Reconciler) run(ctx context.Context) error {
 		}
 		r.hookState[iface.Name] = iface.Enabled
 
-		if r.cfg.Persistence == "hybrid" || r.cfg.Persistence == "wg-quick" {
+		// Never export a conf that would blank PrivateKey on an adopted iface.
+		if (r.cfg.Persistence == "hybrid" || r.cfg.Persistence == "wg-quick") &&
+			iface.PrivateKey != "" && !wgbackend.IsZeroKey(iface.PrivateKey) {
 			if err := r.exportConf(ctx, &iface, peers); err != nil {
 				r.log.Error("export conf", "iface", iface.Name, "err", err)
 			}

@@ -276,6 +276,52 @@ type ImportConfRequest struct {
 	Name    string `json:"name,omitempty"`
 }
 
+// AdoptRequest adopts live host WireGuard interfaces into the daemon DB.
+type AdoptRequest struct {
+	// Names limits adoption (empty = all live WireGuard devices).
+	Names []string `json:"names,omitempty"`
+	// ReadConf merges /etc/wireguard/<name>.conf when present (default true).
+	ReadConf *bool `json:"read_conf,omitempty"`
+	// Overwrite refreshes interfaces already present in the DB (default false).
+	Overwrite bool `json:"overwrite,omitempty"`
+}
+
+// AdoptPreview is one live device as discover would import it.
+type AdoptPreview struct {
+	Name          string   `json:"name"`
+	PublicKey     string   `json:"public_key"`
+	HasPrivateKey bool     `json:"has_private_key"`
+	ListenPort    int      `json:"listen_port"`
+	FwMark        int      `json:"fwmark"`
+	MTU           int      `json:"mtu"`
+	Addresses     []string `json:"addresses"`
+	PeerCount     int      `json:"peer_count"`
+	Up            bool     `json:"up"`
+	ConfPath      string   `json:"conf_path,omitempty"`
+	ConfLoaded    bool     `json:"conf_loaded"`
+	AlreadyInDB   bool     `json:"already_in_db"`
+	TableMode     string   `json:"table_mode"`
+	Notes         []string `json:"notes,omitempty"`
+}
+
+// AdoptResult is the outcome for one interface after adopt.
+type AdoptResult struct {
+	Name          string   `json:"name"`
+	Action        string   `json:"action"`
+	HasPrivateKey bool     `json:"has_private_key"`
+	PeerCount     int      `json:"peer_count"`
+	ConfLoaded    bool     `json:"conf_loaded"`
+	Error         string   `json:"error,omitempty"`
+	Notes         []string `json:"notes,omitempty"`
+}
+
+// AdoptReport is returned by discover/adopt endpoints.
+type AdoptReport struct {
+	At      time.Time      `json:"at"`
+	Preview []AdoptPreview `json:"preview,omitempty"`
+	Results []AdoptResult  `json:"results,omitempty"`
+}
+
 // ClientConfigResponse is a client-side conf.
 type ClientConfigResponse struct {
 	Config string `json:"config"`
