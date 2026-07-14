@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,6 +93,57 @@ func TestInterfaceAndPeerCRUD(t *testing.T) {
 	require.NoError(t, s.DeleteInterface(ctx, "wg0"))
 	_, err = s.GetInterfaceByName(ctx, "wg0")
 	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestSQLitePerformanceMode(t *testing.T) {
+	// On-disk DB so WAL applies.
+	path := t.TempDir() + "/perf.db"
+	s, err := Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	info, err := s.PerformanceInfo()
+	require.NoError(t, err)
+	require.Equal(t, "wal", strings.ToLower(info.JournalMode))
+	// synchronous: 1 = NORMAL
+	require.Equal(t, "1", info.Synchronous)
+	require.Equal(t, "1", info.ForeignKeys)
+	require.Equal(t, "2", info.TempStore) // 2 = MEMORY
+	// cache_size negative means KiB
+	require.Equal(t, "-65536", info.CacheSize)
+	require.NotEqual(t, "0", info.BusyTimeout)
+	// auto_vacuum: 2 = INCREMENTAL on new DBs
+	require.Equal(t, "2", info.AutoVacuum, "new DB should use incremental auto_vacuum")
+}
+
+func TestInsertSamplesBatch(t *testing.T) {
+	s := openTestDB(t)
+	ctx := context.Background()
+	kp, err := crypto.GenerateKeyPair()
+	require.NoError(t, err)
+	iface := &Interface{Name: "wg0", PrivateKey: kp.PrivateKey, PublicKey: kp.PublicKey, Enabled: true}
+	require.NoError(t, s.CreateInterface(ctx, iface))
+	pk, err := crypto.GenerateKeyPair()
+	require.NoError(t, err)
+	peer := &Peer{InterfaceID: iface.ID, PublicKey: pk.PublicKey, AllowedIPs: []string{"10.0.0.2/32"}}
+	require.NoError(t, s.CreatePeer(ctx, peer))
+
+	now := time.Now().UTC()
+	samples := make([]TrafficSample, 50)
+	for i := range samples {
+		samples[i] = TrafficSample{
+			PeerID: peer.ID, SampledAt: now.Add(time.Duration(i) * time.Second),
+			RxBytes: int64(i * 100), TxBytes: int64(i * 50),
+		}
+	}
+	require.NoError(t, s.InsertSamples(ctx, samples))
+	list, err := s.ListPeerSamples(ctx, peer.ID, now.Add(-time.Second), now.Add(time.Hour), 100)
+	require.NoError(t, err)
+	require.Len(t, list, 50)
+
+	n, err := s.PurgeSamples(ctx, time.Nanosecond) // purge everything older than ~now
+	require.NoError(t, err)
+	require.Greater(t, n, int64(0))
 }
 
 func TestTrafficSamplesAndWindows(t *testing.T) {

@@ -7,28 +7,82 @@ import (
 	"time"
 )
 
-// InsertSample stores a traffic sample.
+// InsertSample stores a single traffic sample.
 func (s *Store) InsertSample(ctx context.Context, sample TrafficSample) error {
-	_, err := s.db.ExecContext(ctx, `
-INSERT INTO traffic_samples (peer_id, sampled_at, rx_bytes, tx_bytes, rx_bps, tx_bps)
-VALUES (?, ?, ?, ?, ?, ?)`,
-		sample.PeerID, sample.SampledAt.UTC().Format(time.RFC3339Nano),
-		sample.RxBytes, sample.TxBytes, sample.RxBps, sample.TxBps,
-	)
-	if err != nil {
-		return fmt.Errorf("insert sample: %w", err)
-	}
-	return nil
+	return s.InsertSamples(ctx, []TrafficSample{sample})
 }
 
-// PurgeSamples older than retention.
+// InsertSamples stores many traffic samples in one transaction (high-volume path).
+func (s *Store) InsertSamples(ctx context.Context, samples []TrafficSample) error {
+	if len(samples) == 0 {
+		return nil
+	}
+	if len(samples) == 1 {
+		sm := samples[0]
+		_, err := s.db.ExecContext(ctx, `
+INSERT INTO traffic_samples (peer_id, sampled_at, rx_bytes, tx_bytes, rx_bps, tx_bps)
+VALUES (?, ?, ?, ?, ?, ?)`,
+			sm.PeerID, sm.SampledAt.UTC().Format(time.RFC3339Nano),
+			sm.RxBytes, sm.TxBytes, sm.RxBps, sm.TxBps,
+		)
+		if err != nil {
+			return fmt.Errorf("insert sample: %w", err)
+		}
+		return nil
+	}
+	return s.WithTx(ctx, func(tx *sql.Tx) error {
+		stmt, err := tx.PrepareContext(ctx, `
+INSERT INTO traffic_samples (peer_id, sampled_at, rx_bytes, tx_bytes, rx_bps, tx_bps)
+VALUES (?, ?, ?, ?, ?, ?)`)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = stmt.Close() }()
+		for i := range samples {
+			sm := &samples[i]
+			if _, err := stmt.ExecContext(ctx,
+				sm.PeerID, sm.SampledAt.UTC().Format(time.RFC3339Nano),
+				sm.RxBytes, sm.TxBytes, sm.RxBps, sm.TxBps,
+			); err != nil {
+				return fmt.Errorf("insert sample: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
+// PurgeSamples deletes samples older than retention.
+// Large deletes run in batches to avoid long write locks, then reclaim free pages.
 func (s *Store) PurgeSamples(ctx context.Context, olderThan time.Duration) (int64, error) {
 	cutoff := time.Now().UTC().Add(-olderThan).Format(time.RFC3339Nano)
-	res, err := s.db.ExecContext(ctx, `DELETE FROM traffic_samples WHERE sampled_at < ?`, cutoff)
-	if err != nil {
-		return 0, err
+	const batch = 5000
+	var total int64
+	for {
+		res, err := s.db.ExecContext(ctx, `
+DELETE FROM traffic_samples WHERE id IN (
+  SELECT id FROM traffic_samples WHERE sampled_at < ? LIMIT ?
+)`, cutoff, batch)
+		if err != nil {
+			return total, err
+		}
+		n, _ := res.RowsAffected()
+		total += n
+		if n < batch {
+			break
+		}
+		// Yield a moment under load so API readers can progress (single conn).
+		select {
+		case <-ctx.Done():
+			return total, ctx.Err()
+		default:
+		}
 	}
-	return res.RowsAffected()
+	if total > 0 {
+		// Reclaim free pages when incremental auto_vacuum is active; no-op otherwise.
+		s.IncrementalVacuum(1000)
+		s.Optimize()
+	}
+	return total, nil
 }
 
 // SampleAtOrBefore returns the newest sample at or before t for a peer.

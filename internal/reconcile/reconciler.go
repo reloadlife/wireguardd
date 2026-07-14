@@ -314,6 +314,8 @@ func (r *Reconciler) sampleInterface(ctx context.Context, iface *db.Interface, p
 	now := time.Now().UTC()
 	var sumRx, sumTx int64
 	var sumRxBps, sumTxBps float64
+	// Batch sample inserts (one TX per interface) — critical under many peers.
+	pendingSamples := make([]db.TrafficSample, 0, len(peers))
 
 	for i := range peers {
 		p := &peers[i]
@@ -367,8 +369,7 @@ func (r *Reconciler) sampleInterface(ctx context.Context, iface *db.Interface, p
 
 		effRx, effTx := p.EffectiveRx(), p.EffectiveTx()
 		_ = r.store.UpdatePeerStats(ctx, p)
-		// Samples store accumulative effective counters + rates for window math / history.
-		_ = r.store.InsertSample(ctx, db.TrafficSample{
+		pendingSamples = append(pendingSamples, db.TrafficSample{
 			PeerID:    p.ID,
 			SampledAt: now,
 			RxBytes:   effRx,
@@ -410,6 +411,9 @@ func (r *Reconciler) sampleInterface(ctx context.Context, iface *db.Interface, p
 		sumTx += effTx
 		sumRxBps += rxBps
 		sumTxBps += txBps
+	}
+	if err := r.store.InsertSamples(ctx, pendingSamples); err != nil {
+		r.log.Debug("insert samples", "iface", iface.Name, "err", err)
 	}
 
 	r.cache.SetInterface(stats.IfaceStats{

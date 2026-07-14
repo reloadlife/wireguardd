@@ -20,6 +20,8 @@ wireguardctl  ──REST (HTTP / Unix)──►  wireguardd
 
 Desired configuration lives in SQLite. Live kernel state is applied every few seconds. Optional hybrid mode also writes `/etc/wireguard/<iface>.conf` for boot via `wg-quick`.
 
+SQLite runs in a **performance profile** suited to high sample volume: WAL + `synchronous=NORMAL`, 64 MiB page cache, 256 MiB mmap, `temp_store=MEMORY`, 10 s busy timeout, incremental auto-vacuum (new DBs), batched traffic-sample inserts, and batched retention purge with `incremental_vacuum`.
+
 ## Features
 
 | Area | Capabilities |
