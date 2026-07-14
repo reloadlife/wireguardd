@@ -342,8 +342,12 @@ func (s *Service) buildPlan(ctx context.Context, dev wgbackend.Device, opts Opti
 			if cp.Notes != "" {
 				peers[i].Notes = cp.Notes
 			}
+			// Import traffic limits as metadata, but soft-reset counters so existing
+			// lifetime kernel totals don't immediately auto-suspend peers on adopt.
 			if cp.TrafficLimit > 0 {
 				peers[i].TrafficLimitBytes = cp.TrafficLimit
+				peers[i].RxBytesOffset = peers[i].LastRxBytes
+				peers[i].TxBytesOffset = peers[i].LastTxBytes
 			}
 			if cp.Address != "" {
 				// "# Address = 172.20.0.2/24" → assigned host IP

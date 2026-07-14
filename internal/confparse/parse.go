@@ -63,11 +63,7 @@ func Parse(content string) (*Config, error) {
 		if peer == nil {
 			return
 		}
-		// leftover comments after last peer field still apply
-		if len(pending) > 0 {
-			applyCommentMetaPeer(peer, pending)
-			pending = map[string]string{}
-		}
+		// Do NOT consume pending here — comments after a peer body belong to the *next* peer.
 		cfg.Peers = append(cfg.Peers, *peer)
 		peer = nil
 	}

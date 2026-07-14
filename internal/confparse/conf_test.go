@@ -64,13 +64,22 @@ PrivateKey = abc
 [Peer]
 PublicKey = def
 AllowedIPs = 0.0.0.0/0
+
+# Name = bob
+# TrafficLimit = 2000
+[Peer]
+PublicKey = ghi
+AllowedIPs = 10.0.0.3/32
 `)
 	require.NoError(t, err)
 	require.Equal(t, "abc", cfg.Interface.PrivateKey)
-	require.Len(t, cfg.Peers, 1)
+	require.Len(t, cfg.Peers, 2)
 	require.Equal(t, "alice", cfg.Peers[0].Name)
 	require.Equal(t, "10.0.0.2/24", cfg.Peers[0].Address)
 	require.Equal(t, int64(1000), cfg.Peers[0].TrafficLimit)
+	require.Equal(t, "bob", cfg.Peers[1].Name)
+	require.Equal(t, int64(2000), cfg.Peers[1].TrafficLimit)
+	require.Equal(t, "ghi", cfg.Peers[1].PublicKey)
 
 	out := Render(cfg)
 	require.Contains(t, out, "# Name = alice")
@@ -78,4 +87,5 @@ AllowedIPs = 0.0.0.0/0
 	cfg2, err := Parse(out)
 	require.NoError(t, err)
 	require.Equal(t, "alice", cfg2.Peers[0].Name)
+	require.Equal(t, "bob", cfg2.Peers[1].Name)
 }
