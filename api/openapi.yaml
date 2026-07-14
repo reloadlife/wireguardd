@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: wireguardd API
-  version: 0.8.0
+  version: 1.0.0
   description: |
     REST API for WireGuard interface and peer management.
     All `/v1/*` routes require `Authorization: Bearer <token>`.
