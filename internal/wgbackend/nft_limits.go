@@ -364,4 +364,3 @@ func nftComment(pub string) string {
 	}
 	return s
 }
-

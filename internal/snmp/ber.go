@@ -129,10 +129,7 @@ func encodeOID(oid OID) []byte {
 	if len(oid) < 2 {
 		return wrapTLV(tagOID, []byte{0})
 	}
-	// first byte = 40*first + second
-	if oid[0] > 2 || (oid[0] < 2 && oid[1] >= 40) {
-		// still encode best-effort
-	}
+	// first byte = 40*first + second (encode best-effort even if OID is non-standard)
 	first := byte(oid[0]*40 + oid[1])
 	content := []byte{first}
 	for _, n := range oid[2:] {

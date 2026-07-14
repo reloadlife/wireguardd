@@ -420,13 +420,20 @@ func renderIfaceConf(iface *db.Interface, peers []db.Peer) string {
 		if p.Suspended {
 			allowed = nil
 		}
-		cfg.Peers = append(cfg.Peers, confparse.PeerSection{
+		ps := confparse.PeerSection{
 			PublicKey:           p.PublicKey,
 			PresharedKey:        p.PresharedKey,
 			AllowedIPs:          allowed,
 			Endpoint:            p.Endpoint,
 			PersistentKeepalive: p.PersistentKeepalive,
-		})
+			Name:                p.Name,
+			Notes:               p.Notes,
+			TrafficLimit:        p.TrafficLimitBytes,
+		}
+		if len(p.AssignedIPs) > 0 {
+			ps.Address = p.AssignedIPs[0]
+		}
+		cfg.Peers = append(cfg.Peers, ps)
 	}
 	return confparse.Render(cfg)
 }

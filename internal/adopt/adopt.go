@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,7 +20,7 @@ import (
 type Options struct {
 	// Names limits adoption to these interface names (empty = all live WireGuard devices).
 	Names []string
-	// ReadConf merges /etc/wireguard/<name>.conf when present (keys, DNS, Table, hooks).
+	// ReadConf merges /etc/wireguard/<name>.conf when present (keys, DNS, Table, hooks, peer comments).
 	ReadConf bool
 	// ConfDir is the wg-quick conf directory (default /etc/wireguard).
 	ConfDir string
@@ -30,20 +31,20 @@ type Options struct {
 
 // Preview is one live device as it would be imported (no DB writes).
 type Preview struct {
-	Name            string   `json:"name"`
-	PublicKey       string   `json:"public_key"`
-	HasPrivateKey   bool     `json:"has_private_key"`
-	ListenPort      int      `json:"listen_port"`
-	FwMark          int      `json:"fwmark"`
-	MTU             int      `json:"mtu"`
-	Addresses       []string `json:"addresses"`
-	PeerCount       int      `json:"peer_count"`
-	Up              bool     `json:"up"`
-	ConfPath        string   `json:"conf_path,omitempty"`
-	ConfLoaded      bool     `json:"conf_loaded"`
-	AlreadyInDB     bool     `json:"already_in_db"`
-	TableMode       string   `json:"table_mode"`
-	Notes           []string `json:"notes,omitempty"`
+	Name          string   `json:"name"`
+	PublicKey     string   `json:"public_key"`
+	HasPrivateKey bool     `json:"has_private_key"`
+	ListenPort    int      `json:"listen_port"`
+	FwMark        int      `json:"fwmark"`
+	MTU           int      `json:"mtu"`
+	Addresses     []string `json:"addresses"`
+	PeerCount     int      `json:"peer_count"`
+	Up            bool     `json:"up"`
+	ConfPath      string   `json:"conf_path,omitempty"`
+	ConfLoaded    bool     `json:"conf_loaded"`
+	AlreadyInDB   bool     `json:"already_in_db"`
+	TableMode     string   `json:"table_mode"`
+	Notes         []string `json:"notes,omitempty"`
 }
 
 // Result is the outcome for one interface after Adopt.
@@ -97,8 +98,8 @@ func (s *Service) Discover(ctx context.Context, opts Options) (*Report, error) {
 	return rep, nil
 }
 
-// Adopt imports live WireGuard interfaces into SQLite (source of truth) without
-// removing host peers, addresses, routes, or keys.
+// Adopt imports live WireGuard interfaces into SQLite without removing host peers,
+// addresses, routes, or keys. Comment metadata from conf files is preserved.
 func (s *Service) Adopt(ctx context.Context, opts Options) (*Report, error) {
 	opts = s.normalize(opts)
 	plans, err := s.plan(ctx, opts)
@@ -140,10 +141,6 @@ func (s *Service) Adopt(ctx context.Context, opts Options) (*Report, error) {
 func (s *Service) normalize(opts Options) Options {
 	if opts.ConfDir == "" {
 		opts.ConfDir = s.confDir
-	}
-	// Default: try conf files — best source of private keys / Address= / DNS=.
-	if !opts.ReadConf {
-		// zero value false — callers that want conf must set true; we default true via API.
 	}
 	return opts
 }
@@ -189,112 +186,102 @@ func (s *Service) buildPlan(ctx context.Context, dev wgbackend.Device, opts Opti
 		priv = ""
 	}
 	pub := dev.PublicKey
-	addrs := append([]string(nil), dev.Addresses...)
-	// Filter link-local from stored addresses
-	addrs = filterAddrs(addrs)
+	addrs := filterAddrs(append([]string(nil), dev.Addresses...))
 
 	listenPort := dev.ListenPort
 	fwmark := dev.FirewallMark
 	mtu := dev.MTU
 	dns := []string{}
-	tableMode := "off" // safest: do not rewrite host routes on first adopt
+	// Prefer leaving routing alone; conf Table= is stored for export but route sync
+	// treats non-auto/number as off.
+	tableMode := "off"
 	var tableID *int
 	preUp, postUp, preDown, postDown := "", "", "", ""
+	publicEndpoint := ""
 	confPath := ""
 	confLoaded := false
+	var conf *confparse.Config
 
 	if opts.ReadConf {
 		path := filepath.Join(opts.ConfDir, dev.Name+".conf")
-		confPath = path
 		if raw, err := os.ReadFile(path); err == nil {
-			cfg, err := confparse.Parse(string(raw))
+			confPath = path
+			parsed, err := confparse.Parse(string(raw))
 			if err != nil {
 				notes = append(notes, "conf parse error: "+err.Error())
 			} else {
+				conf = parsed
 				confLoaded = true
-				if cfg.Interface.PrivateKey != "" && !wgbackend.IsZeroKey(cfg.Interface.PrivateKey) {
-					priv = cfg.Interface.PrivateKey
+				if parsed.Interface.PrivateKey != "" && !wgbackend.IsZeroKey(parsed.Interface.PrivateKey) {
+					priv = parsed.Interface.PrivateKey
 					if p, err := crypto.PublicFromPrivate(priv); err == nil {
 						pub = p
 					}
 				}
-				if len(cfg.Interface.Address) > 0 {
-					addrs = append([]string(nil), cfg.Interface.Address...)
+				if parsed.Interface.PublicKeyComment != "" {
+					pub = parsed.Interface.PublicKeyComment
 				}
-				if cfg.Interface.ListenPort > 0 {
-					listenPort = cfg.Interface.ListenPort
+				if len(parsed.Interface.Address) > 0 {
+					addrs = append([]string(nil), parsed.Interface.Address...)
 				}
-				if cfg.Interface.FwMark > 0 {
-					fwmark = cfg.Interface.FwMark
+				if parsed.Interface.ListenPort > 0 {
+					listenPort = parsed.Interface.ListenPort
 				}
-				if cfg.Interface.MTU > 0 {
-					mtu = cfg.Interface.MTU
+				if parsed.Interface.FwMark > 0 {
+					fwmark = parsed.Interface.FwMark
 				}
-				if len(cfg.Interface.DNS) > 0 {
-					dns = append([]string(nil), cfg.Interface.DNS...)
+				if parsed.Interface.MTU > 0 {
+					mtu = parsed.Interface.MTU
 				}
-				preUp, postUp = cfg.Interface.PreUp, cfg.Interface.PostUp
-				preDown, postDown = cfg.Interface.PreDown, cfg.Interface.PostDown
-				if cfg.Interface.Table != "" {
-					switch strings.ToLower(cfg.Interface.Table) {
-					case "off", "auto":
-						tableMode = strings.ToLower(cfg.Interface.Table)
-					default:
-						tableMode = "number"
-						var n int
-						fmt.Sscanf(cfg.Interface.Table, "%d", &n)
-						if n > 0 {
-							tableID = &n
-						} else {
-							tableMode = "off"
-							notes = append(notes, "invalid Table= in conf, using off")
-						}
-					}
+				if len(parsed.Interface.DNS) > 0 {
+					dns = append([]string(nil), parsed.Interface.DNS...)
 				}
-				// Merge conf peers that may have richer AllowedIPs/Endpoint than kernel
-				// (kernel is still source of truth for membership; conf fills gaps).
-				_ = cfg
+				preUp, postUp = parsed.Interface.PreUp, parsed.Interface.PostUp
+				preDown, postDown = parsed.Interface.PreDown, parsed.Interface.PostDown
+				if parsed.Interface.PeerEndpoint != "" {
+					publicEndpoint = parsed.Interface.PeerEndpoint
+				}
+				if parsed.Interface.Table != "" {
+					tableMode, tableID = mapTable(parsed.Interface.Table)
+				}
 			}
-		} else {
-			confPath = ""
 		}
 	}
 
 	if priv == "" {
 		notes = append(notes, "private key unavailable — stats/peers OK; cannot rotate key or rewrite conf PrivateKey")
 	}
-	if tableMode == "off" {
-		notes = append(notes, "table_mode=off (will not install/remove routes until changed)")
+	if tableMode != "auto" && tableMode != "number" {
+		notes = append(notes, "table_mode="+tableMode+" (route install left to host hooks / off)")
 	}
 
 	existing, err := s.store.GetInterfaceByName(ctx, dev.Name)
 	already := err == nil && existing != nil
 
 	iface := &db.Interface{
-		Name:       dev.Name,
-		PrivateKey: priv,
-		PublicKey:  pub,
-		ListenPort: listenPort,
-		FwMark:     fwmark,
-		MTU:        mtu,
-		TableMode:  tableMode,
-		TableID:    tableID,
-		DNS:        dns,
-		Addresses:  addrs,
-		PreUp:      preUp,
-		PostUp:     postUp,
-		PreDown:    preDown,
-		PostDown:   postDown,
-		Enabled:    true, // keep managing as up; SetUp(true) is idempotent
+		Name:           dev.Name,
+		PrivateKey:     priv,
+		PublicKey:      pub,
+		ListenPort:     listenPort,
+		FwMark:         fwmark,
+		MTU:            mtu,
+		TableMode:      tableMode,
+		TableID:        tableID,
+		DNS:            dns,
+		Addresses:      addrs,
+		PreUp:          preUp,
+		PostUp:         postUp,
+		PreDown:        preDown,
+		PostDown:       postDown,
+		PublicEndpoint: publicEndpoint,
+		Enabled:        true,
 	}
 	if already {
 		iface.ID = existing.ID
-		// Preserve operator-set public_endpoint / default_keepalive when refreshing.
-		iface.PublicEndpoint = existing.PublicEndpoint
-		iface.DefaultKeepalive = existing.DefaultKeepalive
-		if !opts.Overwrite {
-			// still build peers for preview peer_count
+		if iface.PublicEndpoint == "" {
+			iface.PublicEndpoint = existing.PublicEndpoint
 		}
+		iface.DefaultKeepalive = existing.DefaultKeepalive
 	}
 	if iface.PublicKey == "" && priv != "" {
 		if p, err := crypto.PublicFromPrivate(priv); err == nil {
@@ -307,7 +294,7 @@ func (s *Service) buildPlan(ctx context.Context, dev wgbackend.Device, opts Opti
 	for _, lp := range dev.Peers {
 		ka := int(lp.PersistentKeepaliveInterval / time.Second)
 		assigned := hostIPsFromAllowed(lp.AllowedIPs)
-		peers = append(peers, db.Peer{
+		p := db.Peer{
 			PublicKey:           lp.PublicKey,
 			PresharedKey:        lp.PresharedKey,
 			AllowedIPs:          append([]string(nil), lp.AllowedIPs...),
@@ -317,39 +304,83 @@ func (s *Service) buildPlan(ctx context.Context, dev wgbackend.Device, opts Opti
 			LastEndpoint:        lp.Endpoint,
 			LastRxBytes:         lp.ReceiveBytes,
 			LastTxBytes:         lp.TransmitBytes,
-		})
-		if !lp.LastHandshakeTime.IsZero() {
-			peers[len(peers)-1].LastHandshakeAt = lp.LastHandshakeTime.UTC().Format(time.RFC3339Nano)
-			peers[len(peers)-1].FirstHandshakeAt = peers[len(peers)-1].LastHandshakeAt
 		}
+		if !lp.LastHandshakeTime.IsZero() {
+			hs := lp.LastHandshakeTime.UTC().Format(time.RFC3339Nano)
+			p.LastHandshakeAt = hs
+			p.FirstHandshakeAt = hs
+		}
+		peers = append(peers, p)
 	}
 
-	// Optional: enrich peer PSK/endpoint from conf when kernel lacks them.
-	if confLoaded && opts.ReadConf {
-		path := filepath.Join(opts.ConfDir, dev.Name+".conf")
-		if raw, err := os.ReadFile(path); err == nil {
-			if cfg, err := confparse.Parse(string(raw)); err == nil {
-				byPub := map[string]confparse.PeerSection{}
-				for _, cp := range cfg.Peers {
-					byPub[cp.PublicKey] = cp
-				}
-				for i := range peers {
-					if cp, ok := byPub[peers[i].PublicKey]; ok {
-						if peers[i].PresharedKey == "" && cp.PresharedKey != "" {
-							peers[i].PresharedKey = cp.PresharedKey
-						}
-						if peers[i].Endpoint == "" && cp.Endpoint != "" {
-							peers[i].Endpoint = cp.Endpoint
-						}
-						if len(peers[i].AllowedIPs) == 0 && len(cp.AllowedIPs) > 0 {
-							peers[i].AllowedIPs = append([]string(nil), cp.AllowedIPs...)
-						}
-						if peers[i].PersistentKeepalive == 0 && cp.PersistentKeepalive > 0 {
-							peers[i].PersistentKeepalive = cp.PersistentKeepalive
-						}
-					}
+	// Enrich from conf comments + peer stanzas (Name, Address, DNS, TrafficLimit, PSK).
+	if conf != nil {
+		byPub := map[string]confparse.PeerSection{}
+		for _, cp := range conf.Peers {
+			byPub[cp.PublicKey] = cp
+		}
+		for i := range peers {
+			cp, ok := byPub[peers[i].PublicKey]
+			if !ok {
+				continue
+			}
+			if peers[i].PresharedKey == "" && cp.PresharedKey != "" {
+				peers[i].PresharedKey = cp.PresharedKey
+			}
+			if peers[i].Endpoint == "" && cp.Endpoint != "" {
+				peers[i].Endpoint = cp.Endpoint
+			}
+			if len(peers[i].AllowedIPs) == 0 && len(cp.AllowedIPs) > 0 {
+				peers[i].AllowedIPs = append([]string(nil), cp.AllowedIPs...)
+			}
+			if peers[i].PersistentKeepalive == 0 && cp.PersistentKeepalive > 0 {
+				peers[i].PersistentKeepalive = cp.PersistentKeepalive
+			}
+			if cp.Name != "" {
+				peers[i].Name = cp.Name
+			}
+			if cp.Notes != "" {
+				peers[i].Notes = cp.Notes
+			}
+			if cp.TrafficLimit > 0 {
+				peers[i].TrafficLimitBytes = cp.TrafficLimit
+			}
+			if cp.Address != "" {
+				// "# Address = 172.20.0.2/24" → assigned host IP
+				host := strings.Split(cp.Address, "/")[0]
+				if host != "" {
+					peers[i].AssignedIPs = []string{host}
 				}
 			}
+		}
+		// Conf-only peers not in kernel: still import so conf is SoT for offline peers.
+		livePubs := map[string]struct{}{}
+		for _, p := range peers {
+			livePubs[p.PublicKey] = struct{}{}
+		}
+		for _, cp := range conf.Peers {
+			if _, ok := livePubs[cp.PublicKey]; ok {
+				continue
+			}
+			assigned := hostIPsFromAllowed(cp.AllowedIPs)
+			if cp.Address != "" {
+				host := strings.Split(cp.Address, "/")[0]
+				if host != "" {
+					assigned = []string{host}
+				}
+			}
+			peers = append(peers, db.Peer{
+				PublicKey:           cp.PublicKey,
+				PresharedKey:        cp.PresharedKey,
+				Name:                cp.Name,
+				Notes:               cp.Notes,
+				AllowedIPs:          append([]string(nil), cp.AllowedIPs...),
+				AssignedIPs:         assigned,
+				Endpoint:            cp.Endpoint,
+				PersistentKeepalive: cp.PersistentKeepalive,
+				TrafficLimitBytes:   cp.TrafficLimit,
+			})
+			notes = append(notes, "imported conf-only peer "+short(cp.PublicKey))
 		}
 	}
 
@@ -373,12 +404,28 @@ func (s *Service) buildPlan(ctx context.Context, dev wgbackend.Device, opts Opti
 }
 
 func (s *Service) applyPlan(ctx context.Context, p plan, overwrite bool) error {
-	// ImportInterface does atomic upsert of iface + full peer replace in state DB.
-	// That matches live peer set — ApplyPeers later won't delete kernel peers.
 	if p.preview.AlreadyInDB && !overwrite {
 		return nil
 	}
 	return s.store.ImportInterface(ctx, p.iface, p.peers)
+}
+
+// mapTable converts conf Table= into DB table_mode + optional id.
+// Custom names (wgvpn, gaming) are stored as-is for conf export; route sync treats them as off.
+func mapTable(table string) (mode string, id *int) {
+	table = strings.TrimSpace(table)
+	switch strings.ToLower(table) {
+	case "", "auto":
+		return "auto", nil
+	case "off":
+		return "off", nil
+	default:
+		if n, err := strconv.Atoi(table); err == nil && n > 0 {
+			return "number", &n
+		}
+		// Preserve custom name for conf persistence.
+		return table, nil
+	}
 }
 
 func filterAddrs(in []string) []string {
@@ -393,7 +440,6 @@ func filterAddrs(in []string) []string {
 	return out
 }
 
-// hostIPsFromAllowed picks /32 and /128 from AllowedIPs as assigned_ips candidates.
 func hostIPsFromAllowed(allowed []string) []string {
 	var out []string
 	for _, a := range allowed {
@@ -404,4 +450,11 @@ func hostIPsFromAllowed(allowed []string) []string {
 		}
 	}
 	return out
+}
+
+func short(pub string) string {
+	if len(pub) <= 12 {
+		return pub
+	}
+	return pub[:8] + "…"
 }

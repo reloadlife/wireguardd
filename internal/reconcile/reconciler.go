@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -259,21 +260,27 @@ func (r *Reconciler) run(ctx context.Context) error {
 func (r *Reconciler) exportConf(ctx context.Context, iface *db.Interface, peers []db.Peer) error {
 	cfg := &confparse.Config{
 		Interface: confparse.InterfaceSection{
-			PrivateKey: iface.PrivateKey,
-			Address:    iface.Addresses,
-			ListenPort: iface.ListenPort,
-			DNS:        iface.DNS,
-			MTU:        iface.MTU,
-			Table:      iface.TableMode,
-			FwMark:     iface.FwMark,
-			PreUp:      iface.PreUp,
-			PostUp:     iface.PostUp,
-			PreDown:    iface.PreDown,
-			PostDown:   iface.PostDown,
+			PrivateKey:       iface.PrivateKey,
+			PublicKeyComment: iface.PublicKey,
+			Address:          iface.Addresses,
+			ListenPort:       iface.ListenPort,
+			DNS:              iface.DNS,
+			MTU:              iface.MTU,
+			Table:            iface.TableMode,
+			FwMark:           iface.FwMark,
+			PreUp:            iface.PreUp,
+			PostUp:           iface.PostUp,
+			PreDown:          iface.PreDown,
+			PostDown:         iface.PostDown,
+			PeerEndpoint:     iface.PublicEndpoint,
 		},
 	}
 	if iface.TableMode == "number" && iface.TableID != nil {
 		cfg.Interface.Table = fmt.Sprintf("%d", *iface.TableID)
+	}
+	// Prefer PeerDNS from interface DNS list for client hint comments.
+	if len(iface.DNS) > 0 {
+		cfg.Interface.PeerDNS = strings.Join(iface.DNS, ", ")
 	}
 	for _, p := range peers {
 		// Suspended peers export empty AllowedIPs so wg-quick boot stays suspended.
@@ -281,13 +288,24 @@ func (r *Reconciler) exportConf(ctx context.Context, iface *db.Interface, peers 
 		if p.Suspended {
 			allowed = nil
 		}
-		cfg.Peers = append(cfg.Peers, confparse.PeerSection{
+		ps := confparse.PeerSection{
 			PublicKey:           p.PublicKey,
 			PresharedKey:        p.PresharedKey,
 			AllowedIPs:          allowed,
 			Endpoint:            p.Endpoint,
 			PersistentKeepalive: p.PersistentKeepalive,
-		})
+			Name:                p.Name,
+			Notes:               p.Notes,
+			TrafficLimit:        p.TrafficLimitBytes,
+		}
+		// Durable client address comment (# Address = x.x.x.x/24).
+		if len(p.AssignedIPs) > 0 {
+			ps.Address = p.AssignedIPs[0]
+			if !strings.Contains(ps.Address, "/") {
+				ps.Address += "/32"
+			}
+		}
+		cfg.Peers = append(cfg.Peers, ps)
 	}
 	content := confparse.Render(cfg)
 	path := filepath.Join(r.cfg.ConfDir, iface.Name+".conf")

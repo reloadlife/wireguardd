@@ -352,7 +352,9 @@ func normalizeTableMode(mode string) string {
 		if _, err := strconv.Atoi(mode); err == nil {
 			return tableModeNumber
 		}
-		return tableModeAuto
+		// Named custom tables (e.g. "wgvpn", "gaming") are managed via PostUp hooks
+		// on the host — do not install/remove routes ourselves.
+		return tableModeOff
 	}
 }
 

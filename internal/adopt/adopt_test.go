@@ -110,11 +110,9 @@ func TestAdoptWithoutConfMissingKey(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	pub := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-	// Use a valid-looking public key from a real keypair
 	kp, err := crypto.GenerateKeyPair()
 	require.NoError(t, err)
-	pub = kp.PublicKey
+	pub := kp.PublicKey
 	peerKP, err := crypto.GenerateKeyPair()
 	require.NoError(t, err)
 

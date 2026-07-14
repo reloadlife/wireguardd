@@ -44,8 +44,11 @@ func TestParseAndRenderRoundTrip(t *testing.T) {
 }
 
 func TestParseMissingPrivateKey(t *testing.T) {
-	_, err := Parse("[Interface]\nListenPort = 1\n")
-	require.Error(t, err)
+	// Incomplete confs are allowed (adopt path); PrivateKey may be empty.
+	cfg, err := Parse("[Interface]\nListenPort = 1\n")
+	require.NoError(t, err)
+	require.Empty(t, cfg.Interface.PrivateKey)
+	require.Equal(t, 1, cfg.Interface.ListenPort)
 }
 
 func TestParseCommentsAndBlank(t *testing.T) {
@@ -55,6 +58,9 @@ func TestParseCommentsAndBlank(t *testing.T) {
 PrivateKey = abc
 ; another
 
+# Name = alice
+# Address = 10.0.0.2/24
+# TrafficLimit = 1000
 [Peer]
 PublicKey = def
 AllowedIPs = 0.0.0.0/0
@@ -62,4 +68,14 @@ AllowedIPs = 0.0.0.0/0
 	require.NoError(t, err)
 	require.Equal(t, "abc", cfg.Interface.PrivateKey)
 	require.Len(t, cfg.Peers, 1)
+	require.Equal(t, "alice", cfg.Peers[0].Name)
+	require.Equal(t, "10.0.0.2/24", cfg.Peers[0].Address)
+	require.Equal(t, int64(1000), cfg.Peers[0].TrafficLimit)
+
+	out := Render(cfg)
+	require.Contains(t, out, "# Name = alice")
+	require.Contains(t, out, "# TrafficLimit = 1000")
+	cfg2, err := Parse(out)
+	require.NoError(t, err)
+	require.Equal(t, "alice", cfg2.Peers[0].Name)
 }

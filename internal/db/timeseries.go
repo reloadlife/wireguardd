@@ -9,8 +9,9 @@ import (
 )
 
 // DefaultTimeseriesPath returns the default timeseries DB path beside the state DB.
-//   state.db        → timeseries.db (same directory)
-//   :memory: / ""   → in-memory shared cache DB
+//
+//	state.db        → timeseries.db (same directory)
+//	:memory: / ""   → in-memory shared cache DB
 func DefaultTimeseriesPath(statePath string) string {
 	if statePath == "" || statePath == ":memory:" {
 		return "file:wireguardd_ts?mode=memory&cache=shared"

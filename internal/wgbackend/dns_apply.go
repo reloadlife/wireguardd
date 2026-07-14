@@ -233,11 +233,7 @@ func applyResolvectl(ctx context.Context, runner Runner, iface string, cfg DNSCo
 	if len(cfg.Domains) > 0 {
 		// Prefix ~ for routing domains when user didn't; keep bare for search.
 		// wg-quick uses domains as both search and ~. for default-route cases.
-		doms := make([]string, 0, len(cfg.Domains))
-		for _, d := range cfg.Domains {
-			doms = append(doms, d)
-		}
-		args := append([]string{"domain", iface}, doms...)
+		args := append([]string{"domain", iface}, cfg.Domains...)
 		if _, err := runner.Run(ctx, "resolvectl", args...); err != nil {
 			return fmt.Errorf("resolvectl domain: %w", err)
 		}

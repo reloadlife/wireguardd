@@ -127,29 +127,29 @@ type PeerUpdateRequest struct {
 
 // Peer is the API representation of a peer.
 type Peer struct {
-	ID                  int64     `json:"id"`
-	InterfaceName       string    `json:"interface_name"`
-	PublicKey           string    `json:"public_key"`
-	PresharedKey        string    `json:"preshared_key,omitempty"`
-	Name                string    `json:"name"`
-	Notes               string    `json:"notes"`
-	AllowedIPs          []string  `json:"allowed_ips"`
-	AssignedIPs         []string  `json:"assigned_ips"`
-	Endpoint            string    `json:"endpoint"`
-	PersistentKeepalive int       `json:"persistent_keepalive"`
-	Suspended           bool      `json:"suspended"`
-	TrafficLimitBytes   int64     `json:"traffic_limit_bytes"`
-	BandwidthRxBps      int64     `json:"bandwidth_rx_bps"`
-	BandwidthTxBps      int64     `json:"bandwidth_tx_bps"`
-	FirstHandshakeAt    string    `json:"first_handshake_at,omitempty"`
-	LastHandshakeAt     string    `json:"last_handshake_at,omitempty"`
-	ConnectedSince      string    `json:"connected_since,omitempty"`
-	LastEndpoint        string    `json:"last_endpoint,omitempty"`
+	ID                  int64    `json:"id"`
+	InterfaceName       string   `json:"interface_name"`
+	PublicKey           string   `json:"public_key"`
+	PresharedKey        string   `json:"preshared_key,omitempty"`
+	Name                string   `json:"name"`
+	Notes               string   `json:"notes"`
+	AllowedIPs          []string `json:"allowed_ips"`
+	AssignedIPs         []string `json:"assigned_ips"`
+	Endpoint            string   `json:"endpoint"`
+	PersistentKeepalive int      `json:"persistent_keepalive"`
+	Suspended           bool     `json:"suspended"`
+	TrafficLimitBytes   int64    `json:"traffic_limit_bytes"`
+	BandwidthRxBps      int64    `json:"bandwidth_rx_bps"`
+	BandwidthTxBps      int64    `json:"bandwidth_tx_bps"`
+	FirstHandshakeAt    string   `json:"first_handshake_at,omitempty"`
+	LastHandshakeAt     string   `json:"last_handshake_at,omitempty"`
+	ConnectedSince      string   `json:"connected_since,omitempty"`
+	LastEndpoint        string   `json:"last_endpoint,omitempty"`
 	// Flat counters kept for compatibility (same as traffic.total / traffic.rate EWMA).
-	RxBytes   int64   `json:"rx_bytes"` // accumulative since soft-reset
-	TxBytes   int64   `json:"tx_bytes"`
-	RxBps     float64 `json:"rx_bps"` // EWMA rate (bytes/sec)
-	TxBps     float64 `json:"tx_bps"`
+	RxBytes int64   `json:"rx_bytes"` // accumulative since soft-reset
+	TxBytes int64   `json:"tx_bytes"`
+	RxBps   float64 `json:"rx_bps"` // EWMA rate (bytes/sec)
+	TxBps   float64 `json:"tx_bps"`
 	// Traffic is the dual model: accumulative totals + time-based rates + lookback windows.
 	Traffic   PeerTraffic `json:"traffic"`
 	Connected bool        `json:"connected"`
@@ -194,10 +194,10 @@ type TrafficWindow struct {
 
 // PeerTrafficHistory is a time series of samples for graphing.
 type PeerTrafficHistory struct {
-	Interface string               `json:"interface"`
-	PublicKey string               `json:"public_key"`
-	From      time.Time            `json:"from"`
-	To        time.Time            `json:"to"`
+	Interface string    `json:"interface"`
+	PublicKey string    `json:"public_key"`
+	From      time.Time `json:"from"`
+	To        time.Time `json:"to"`
 	// Traffic dual snapshot at "to" (totals + rates + windows).
 	Traffic PeerTraffic `json:"traffic"`
 	// Samples are accumulative totals and rates at each sample point.

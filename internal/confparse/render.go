@@ -5,12 +5,18 @@ import (
 	"strings"
 )
 
-// Render produces a wg-quick compatible configuration.
+// Render produces a wg-quick compatible configuration with durable # comment metadata.
+// Comments survive next to peers/interfaces so a corrupted DB can still be recovered
+// from /etc/wireguard/*.conf (same style as existing WGDashboard-style confs).
 func Render(cfg *Config) string {
 	var b strings.Builder
+	b.WriteString("# Managed by wireguardd — comment fields are the durable backup of peer/interface metadata.\n")
 	b.WriteString("[Interface]\n")
 	if cfg.Interface.PrivateKey != "" {
 		fmt.Fprintf(&b, "PrivateKey = %s\n", cfg.Interface.PrivateKey)
+	}
+	if cfg.Interface.PublicKeyComment != "" {
+		fmt.Fprintf(&b, "# PublicKey = %s\n", cfg.Interface.PublicKeyComment)
 	}
 	for _, a := range cfg.Interface.Address {
 		fmt.Fprintf(&b, "Address = %s\n", a)
@@ -30,24 +36,42 @@ func Render(cfg *Config) string {
 	if cfg.Interface.FwMark > 0 {
 		fmt.Fprintf(&b, "FwMark = %d\n", cfg.Interface.FwMark)
 	}
-	if cfg.Interface.PreUp != "" {
-		fmt.Fprintf(&b, "PreUp = %s\n", cfg.Interface.PreUp)
-	}
-	if cfg.Interface.PostUp != "" {
-		fmt.Fprintf(&b, "PostUp = %s\n", cfg.Interface.PostUp)
-	}
-	if cfg.Interface.PreDown != "" {
-		fmt.Fprintf(&b, "PreDown = %s\n", cfg.Interface.PreDown)
-	}
-	if cfg.Interface.PostDown != "" {
-		fmt.Fprintf(&b, "PostDown = %s\n", cfg.Interface.PostDown)
-	}
+	writeHooks(&b, "PreUp", cfg.Interface.PreUp)
+	writeHooks(&b, "PostUp", cfg.Interface.PostUp)
+	writeHooks(&b, "PreDown", cfg.Interface.PreDown)
+	writeHooks(&b, "PostDown", cfg.Interface.PostDown)
 	if cfg.Interface.SaveConfig {
 		b.WriteString("SaveConfig = true\n")
 	}
+	if cfg.Interface.PeerDNS != "" {
+		fmt.Fprintf(&b, "# PeerDNS = %s\n", cfg.Interface.PeerDNS)
+	}
+	if cfg.Interface.PeerEndpoint != "" {
+		fmt.Fprintf(&b, "# PeerEndpoint = %s\n", cfg.Interface.PeerEndpoint)
+	}
 
 	for _, p := range cfg.Peers {
-		b.WriteString("\n[Peer]\n")
+		b.WriteString("\n")
+		if p.Name != "" {
+			fmt.Fprintf(&b, "# Name = %s\n", p.Name)
+		}
+		if p.Address != "" {
+			fmt.Fprintf(&b, "# Address = %s\n", p.Address)
+		}
+		if p.DNS != "" {
+			fmt.Fprintf(&b, "# DNS = %s\n", p.DNS)
+		}
+		if p.ClientAllowedIPs != "" {
+			fmt.Fprintf(&b, "# ClientAllowedIPs = %s\n", p.ClientAllowedIPs)
+		}
+		if p.TrafficLimit > 0 {
+			fmt.Fprintf(&b, "# TrafficLimit = %d\n", p.TrafficLimit)
+		}
+		if p.Notes != "" {
+			// single-line notes only
+			fmt.Fprintf(&b, "# Notes = %s\n", strings.ReplaceAll(p.Notes, "\n", " "))
+		}
+		b.WriteString("[Peer]\n")
 		fmt.Fprintf(&b, "PublicKey = %s\n", p.PublicKey)
 		if p.PresharedKey != "" {
 			fmt.Fprintf(&b, "PresharedKey = %s\n", p.PresharedKey)
@@ -63,4 +87,17 @@ func Render(cfg *Config) string {
 		}
 	}
 	return b.String()
+}
+
+func writeHooks(b *strings.Builder, key, val string) {
+	if val == "" {
+		return
+	}
+	for _, line := range strings.Split(val, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fmt.Fprintf(b, "%s = %s\n", key, line)
+	}
 }

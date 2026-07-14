@@ -126,7 +126,7 @@ func decodePDU(tag byte, content []byte) (*PDU, error) {
 	}
 
 	// error-status / non-repeaters
-	t, c, err = r.readTLV()
+	_, c, err = r.readTLV()
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func decodePDU(tag byte, content []byte) (*PDU, error) {
 		return nil, err
 	}
 	// error-index / max-repetitions
-	t, c, err = r.readTLV()
+	_, c, err = r.readTLV()
 	if err != nil {
 		return nil, err
 	}
