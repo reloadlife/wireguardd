@@ -10,11 +10,13 @@ import (
 
 // MockBackend is an in-memory backend for tests.
 type MockBackend struct {
-	mu        sync.Mutex
-	DevicesM  map[string]*Device
-	Hooks     []string
-	Exports   map[string]string
-	Bandwidth map[string]map[string]DesiredPeer // iface -> pubkey -> peer limits
+	mu          sync.Mutex
+	DevicesM    map[string]*Device
+	Hooks       []string
+	Exports     map[string]string
+	Bandwidth   map[string]map[string]DesiredPeer // iface -> pubkey -> peer limits
+	RouteTables map[string]string                 // iface -> table mode/id
+	RouteCounts map[string]int                    // iface -> allowed-ip route count
 	// FailNext if set causes the next mutating call to fail.
 	FailNext error
 }
@@ -22,9 +24,11 @@ type MockBackend struct {
 // NewMock creates an empty mock backend.
 func NewMock() *MockBackend {
 	return &MockBackend{
-		DevicesM:  make(map[string]*Device),
-		Exports:   make(map[string]string),
-		Bandwidth: make(map[string]map[string]DesiredPeer),
+		DevicesM:    make(map[string]*Device),
+		Exports:     make(map[string]string),
+		Bandwidth:   make(map[string]map[string]DesiredPeer),
+		RouteTables: make(map[string]string),
+		RouteCounts: make(map[string]int),
 	}
 }
 
@@ -184,6 +188,39 @@ func (m *MockBackend) SyncBandwidth(ctx context.Context, iface string, peers []D
 		}
 	}
 	m.Bandwidth[iface] = cur
+	return nil
+}
+
+// RouteSyncs records SyncRoutes calls for tests.
+func (m *MockBackend) SyncRoutes(ctx context.Context, desired DesiredInterface) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.RouteTables == nil {
+		m.RouteTables = make(map[string]string)
+	}
+	mode := desired.TableMode
+	if mode == "" {
+		mode = "auto"
+	}
+	if mode == "number" && desired.TableID != nil {
+		mode = fmt.Sprintf("%d", *desired.TableID)
+	}
+	if !desired.Enabled {
+		mode = "off"
+	}
+	m.RouteTables[desired.Name] = mode
+	// Count non-suspended allowed IPs as "installed" for inspection.
+	n := 0
+	for _, p := range desired.Peers {
+		if p.Suspended {
+			continue
+		}
+		n += len(p.AllowedIPs)
+	}
+	if m.RouteCounts == nil {
+		m.RouteCounts = make(map[string]int)
+	}
+	m.RouteCounts[desired.Name] = n
 	return nil
 }
 

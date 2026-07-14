@@ -296,12 +296,17 @@ func (m rootModel) submitIfaceForm() (tea.Model, tea.Cmd) {
 			port = 51820
 		}
 		mtu, _ := parseIntField(v["mtu"])
+		fw, _ := parseIntField(v["fwmark"])
+		tm, tid := parseTableFields(v["table"], v["table_id"])
 		req := pkgapi.InterfaceCreateRequest{
 			Name:           name,
 			ListenPort:     port,
 			Addresses:      splitCSV(v["addresses"]),
 			DNS:            splitCSV(v["dns"]),
 			MTU:            mtu,
+			TableMode:      tm,
+			TableID:        tid,
+			FwMark:         fw,
 			PublicEndpoint: v["public_endpoint"],
 		}
 		return m, doCreateIface(m.cfg.Client, req)
@@ -313,16 +318,44 @@ func (m rootModel) submitIfaceForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	mtu, _ := parseIntField(v["mtu"])
+	fw, _ := parseIntField(v["fwmark"])
+	tm, tid := parseTableFields(v["table"], v["table_id"])
 	req := pkgapi.InterfaceUpdateRequest{
 		ListenPort:     &port,
 		Addresses:      splitCSV(v["addresses"]),
 		DNS:            splitCSV(v["dns"]),
+		TableMode:      &tm,
+		TableID:        tid,
+		FwMark:         &fw,
 		PublicEndpoint: strPtr(v["public_endpoint"]),
 	}
 	if mtu > 0 {
 		req.MTU = &mtu
 	}
 	return m, doUpdateIface(m.cfg.Client, m.editName, req)
+}
+
+func parseTableFields(table, tableID string) (mode string, id *int) {
+	mode = strings.ToLower(strings.TrimSpace(table))
+	if mode == "" {
+		mode = "auto"
+	}
+	if mode == "number" || mode == "custom" {
+		mode = "number"
+		if n, err := parseIntField(tableID); err == nil && n > 0 {
+			id = &n
+		}
+		return mode, id
+	}
+	if n, err := parseIntField(mode); err == nil && n > 0 {
+		mode = "number"
+		id = &n
+		return mode, id
+	}
+	if mode != "off" && mode != "auto" {
+		mode = "auto"
+	}
+	return mode, nil
 }
 
 func (m rootModel) submitPeerForm() (tea.Model, tea.Cmd) {
@@ -567,18 +600,31 @@ func (m rootModel) handleListKey(key string) (tea.Model, tea.Cmd) {
 }
 
 func (m rootModel) openIfaceCreate() (tea.Model, tea.Cmd) {
-	m.form = newForm("New interface", ifaceCreateFields(), map[string]string{"port": "51820"})
+	m.form = newForm("New interface", ifaceCreateFields(), map[string]string{
+		"port": "51820", "table": "auto",
+	})
 	m.formCreate = true
 	m.mode = modeIfaceForm
 	return m, m.form.Init()
 }
 
 func (m rootModel) openIfaceEdit(iface pkgapi.Interface) (tea.Model, tea.Cmd) {
+	tid := ""
+	if iface.TableID != nil {
+		tid = fmt.Sprintf("%d", *iface.TableID)
+	}
+	tm := iface.TableMode
+	if tm == "" {
+		tm = "auto"
+	}
 	m.form = newForm("Edit "+iface.Name, ifaceEditFields(), map[string]string{
 		"port":            fmt.Sprintf("%d", iface.ListenPort),
 		"addresses":       joinCSV(iface.Addresses),
 		"dns":             joinCSV(iface.DNS),
 		"mtu":             fmt.Sprintf("%d", iface.MTU),
+		"table":           tm,
+		"table_id":        tid,
+		"fwmark":          fmt.Sprintf("%d", iface.FwMark),
 		"public_endpoint": iface.PublicEndpoint,
 	})
 	m.formCreate = false
@@ -842,6 +888,15 @@ func (m rootModel) viewIfaceDetail() string {
 	kv("Addresses", joinCSV(i.Addresses))
 	kv("DNS", joinCSV(i.DNS))
 	kv("MTU", fmt.Sprintf("%d", i.MTU))
+	table := i.TableMode
+	if table == "number" && i.TableID != nil {
+		table = fmt.Sprintf("%d", *i.TableID)
+	}
+	if table == "" {
+		table = "auto"
+	}
+	kv("Table", table)
+	kv("FwMark", fmt.Sprintf("%d", i.FwMark))
 	kv("Public endpoint", i.PublicEndpoint)
 	kv("Peers", fmt.Sprintf("%d", i.PeerCount))
 	kv("RX / TX", formatBytes(i.RxBytes)+" / "+formatBytes(i.TxBytes))
@@ -887,4 +942,3 @@ func (m rootModel) viewClientConf() string {
 	help := helpStyle.Render("esc/enter back  ·  copy config from terminal")
 	return panelStyle.Render(titleStyle.Render("Client config") + "\n\n" + m.clientConf + "\n" + help)
 }
-

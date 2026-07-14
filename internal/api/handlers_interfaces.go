@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -292,12 +293,16 @@ func (s *Server) handleInterfaceImport(w http.ResponseWriter, r *http.Request) {
 	tableMode := "auto"
 	var tableID *int
 	if cfg.Interface.Table != "" {
-		if cfg.Interface.Table == "off" || cfg.Interface.Table == "auto" {
-			tableMode = cfg.Interface.Table
-		} else {
+		switch strings.ToLower(cfg.Interface.Table) {
+		case "off", "auto":
+			tableMode = strings.ToLower(cfg.Interface.Table)
+		default:
 			tableMode = "number"
 			var n int
-			_, _ = parseInt(cfg.Interface.Table, &n)
+			if _, err := parseInt(cfg.Interface.Table, &n); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid_table", "Table must be auto, off, or a number")
+				return
+			}
 			tableID = &n
 		}
 	}

@@ -20,6 +20,7 @@ type HostBackend struct {
 	allowHooks       bool
 	bandwidthBackend string
 	tc               *tcState
+	routes           *routeState
 }
 
 // HostOptions configures HostBackend.
@@ -50,6 +51,7 @@ func NewHostBackend(opts HostOptions) (*HostBackend, error) {
 		confDir:          opts.ConfDir,
 		allowHooks:       opts.AllowHooks,
 		tc:               newTCState(),
+		routes:           newRouteState(),
 		bandwidthBackend: bw,
 	}, nil
 }
@@ -156,6 +158,7 @@ func (b *HostBackend) EnsureInterface(ctx context.Context, desired DesiredInterf
 // RemoveInterface implements Backend.
 func (b *HostBackend) RemoveInterface(ctx context.Context, name string) error {
 	b.clearInterfaceTC(ctx, name)
+	b.clearInterfaceRoutes(ctx, name)
 	return b.deleteLink(ctx, name)
 }
 

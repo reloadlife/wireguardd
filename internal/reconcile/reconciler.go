@@ -181,6 +181,10 @@ func (r *Reconciler) run(ctx context.Context) error {
 		if err := r.backend.SetUp(ctx, iface.Name, iface.Enabled); err != nil {
 			r.log.Error("set up", "iface", iface.Name, "err", err)
 		}
+		// Routing table / AllowedIP routes (wg-quick Table=).
+		if err := r.backend.SyncRoutes(ctx, di); err != nil {
+			r.log.Error("route sync", "iface", iface.Name, "err", err)
+		}
 		if r.cfg.AllowHooks && goingUp && iface.PostUp != "" {
 			_ = r.backend.RunHook(ctx, iface.PostUp)
 		}

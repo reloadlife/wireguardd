@@ -24,7 +24,7 @@ Desired configuration lives in SQLite. Live kernel state is applied every few se
 
 | Area | Capabilities |
 |------|----------------|
-| Interfaces | Create/delete, up/down, listen port, fwmark, MTU, multi IPv4/IPv6 addresses, DNS, table mode, Pre/Post hooks (opt-in), import/export wg-quick conf |
+| Interfaces | Create/delete, up/down, listen port, fwmark, MTU, multi IPv4/IPv6 addresses, DNS, **full Table= routing** (`auto` / `off` / custom table + policy rules), Pre/Post hooks (opt-in), import/export wg-quick conf |
 | Peers | AllowedIPs, endpoint, PSK, keepalive, assigned IPs, tags/notes, client conf + QR (requires `generate_client_key` or `client_private_key`, plus interface `public_endpoint`) |
 | Policy | Suspend (strip AllowedIPs + blackhole routes), traffic quotas (auto-suspend), bandwidth limits (tc) |
 | Stats | Per-peer / per-interface totals + rates, handshake/connected tracking |
@@ -90,6 +90,16 @@ Environment overrides use prefix `WIREGUARDD_` / `WIREGUARDCTL_` (e.g. `WIREGUAR
 | `database` | SQLite only; apply via wgctrl/`ip` |
 | `wg-quick` | Also write conf files under `conf_dir` |
 | `hybrid` | SQLite SoT + write conf after each successful apply (default) |
+
+### Routing table (`Table=`, wg-quick compatible)
+
+| `table_mode` | Live behavior |
+|--------------|---------------|
+| `auto` (default) | AllowedIP routes in main table; `0.0.0.0/0` / `::/0` use a special table + fwmark + `suppress_prefixlength 0` (same idea as wg-quick) |
+| `off` | No AllowedIP routes or policy rules |
+| `number` + `table_id` | All AllowedIP routes in that table; policy rules from each interface address (`from <addr> lookup <id>`) and `iif <wg>` |
+
+Suspended peers are excluded from route install. Interface down / delete removes managed routes and rules.
 
 ### Suspend & limits
 

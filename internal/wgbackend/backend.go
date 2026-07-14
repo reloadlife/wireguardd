@@ -82,6 +82,8 @@ type Backend interface {
 	// SyncBandwidth applies/removes full per-peer bandwidth policy for an interface.
 	// Implementations that only support single-peer ApplyBandwidth may loop peers.
 	SyncBandwidth(ctx context.Context, iface string, peers []DesiredPeer) error
+	// SyncRoutes installs AllowedIP routes + policy rules per Table= (wg-quick).
+	SyncRoutes(ctx context.Context, desired DesiredInterface) error
 	// ExportConf writes a conf file (wg-quick style) for the interface.
 	ExportConf(ctx context.Context, path string, content string) error
 	// RunHooks runs pre/post up/down if allowed.
