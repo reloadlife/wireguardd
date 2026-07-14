@@ -151,4 +151,4 @@ Tests use an in-memory mock WireGuard backend; no kernel module required in CI.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+[GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE) — see [LICENSE](LICENSE).
