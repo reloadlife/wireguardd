@@ -208,7 +208,8 @@ install_from_release() {
 
   local work
   work="$(mktemp -d "${TMPDIR_BASE}/wireguardd-install.XXXXXX")"
-  trap 'rm -rf "$work"' EXIT
+  # shellcheck disable=SC2064
+  trap "rm -rf $(printf '%q' "$work")" EXIT
 
   # Prefer GitHub API asset download (works for private repos with token)
   local d_name c_name
