@@ -410,9 +410,7 @@ func (s *Server) toAPIInterface(ctx context.Context, iface *db.Interface, reveal
 	up := iface.Enabled
 	if dev, err := s.backend.Device(ctx, iface.Name); err == nil {
 		up = dev.Up && iface.Enabled
-		if dev.ListenPort > 0 {
-			// keep desired listen port in response; live is applied
-		}
+		_ = dev.ListenPort // live port observed; response uses desired ListenPort
 	}
 	out := pkgapi.Interface{
 		ID: iface.ID, Name: iface.Name, PublicKey: iface.PublicKey,

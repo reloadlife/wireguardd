@@ -198,9 +198,7 @@ func (r *Reconciler) exportConf(ctx context.Context, iface *db.Interface, peers 
 		cfg.Interface.Table = fmt.Sprintf("%d", *iface.TableID)
 	}
 	for _, p := range peers {
-		if p.Suspended {
-			// still export desired AllowedIPs for persistence of intent
-		}
+		// Always export desired AllowedIPs (including suspended peers) for boot persistence.
 		cfg.Peers = append(cfg.Peers, confparse.PeerSection{
 			PublicKey:           p.PublicKey,
 			PresharedKey:        p.PresharedKey,

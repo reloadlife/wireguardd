@@ -26,7 +26,7 @@ func Open(path string) (*Store, error) {
 			return nil, fmt.Errorf("create db dir: %w", err)
 		}
 	}
-	dsn := path
+	var dsn string
 	if path != ":memory:" {
 		dsn = "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
 	} else {

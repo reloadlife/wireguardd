@@ -209,16 +209,11 @@ func (a *Agent) handle(req []byte) []byte {
 	} else {
 		for _, roid := range requested {
 			if isNext {
-				found := false
 				for _, v := range vars {
 					if v.OID.Compare(roid) > 0 {
 						bindings = append(bindings, v)
-						found = true
 						break
 					}
-				}
-				if !found {
-					// end of mib view — skip
 				}
 			} else {
 				for _, v := range vars {
