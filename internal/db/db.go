@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -14,110 +12,148 @@ import (
 	"github.com/reloadlife/wireguardd/migrations"
 )
 
-// Store wraps the SQLite connection.
+// Store wraps the state SQLite DB plus a dedicated timeseries SQLite DB.
+//
+//	state.db       — interfaces, peers, events (source of truth)
+//	timeseries.db  — traffic_samples only (high-volume writes)
 type Store struct {
-	db     *sql.DB
+	db     *sql.DB // state
+	ts     *sql.DB // timeseries
 	memory bool
+	tsPath string
 }
 
-// Open opens (or creates) the database, enables the performance profile, and runs migrations.
+// OpenOptions configures both SQLite files.
+type OpenOptions struct {
+	// Path is the state database path (desired config SoT).
+	Path string
+	// TimeseriesPath is the samples database. Empty → DefaultTimeseriesPath(Path).
+	TimeseriesPath string
+}
+
+// Open opens state + timeseries databases (timeseries path auto-derived).
 func Open(path string) (*Store, error) {
-	memory := path == ":memory:" || path == ""
-	if !memory {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return nil, fmt.Errorf("create db dir: %w", err)
-		}
+	return OpenWithOptions(OpenOptions{Path: path})
+}
+
+// OpenWithOptions opens state and timeseries SQLite files with performance profiles.
+func OpenWithOptions(opts OpenOptions) (*Store, error) {
+	tsPath := opts.TimeseriesPath
+	if tsPath == "" {
+		tsPath = DefaultTimeseriesPath(opts.Path)
 	}
 
-	// DSN: enable busy_timeout + foreign_keys at connection init (modernc applies _pragma per conn).
-	// Full performance profile is applied again via Exec so values are verified and complete.
-	var dsn string
-	if memory {
-		dsn = "file:memdb1?mode=memory&cache=shared" +
-			"&_pragma=foreign_keys(1)" +
-			"&_pragma=busy_timeout(10000)" +
-			"&_pragma=temp_store(MEMORY)" +
-			"&_pragma=synchronous(OFF)"
-	} else {
-		dsn = "file:" + path +
-			"?_pragma=busy_timeout(10000)" +
-			"&_pragma=foreign_keys(1)" +
-			"&_pragma=journal_mode(WAL)" +
-			"&_pragma=synchronous(NORMAL)" +
-			"&_pragma=temp_store(MEMORY)" +
-			"&_pragma=cache_size(-65536)" +
-			"&_pragma=mmap_size(268435456)"
-	}
-
-	sqlDB, err := sql.Open("sqlite", dsn)
+	// 1) Open timeseries first and ensure schema (needed for legacy sample migrate).
+	tsDB, tsMem, err := openSQLite(tsPath, true)
 	if err != nil {
-		return nil, fmt.Errorf("open sqlite: %w", err)
+		return nil, fmt.Errorf("open timeseries db: %w", err)
 	}
-	// Single writer connection — SQLite + modernc is safest this way; WAL still allows
-	// concurrent readers via the same connection pool serialization.
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
-	sqlDB.SetConnMaxLifetime(0)
-	sqlDB.SetConnMaxIdleTime(0)
-
-	// Incremental vacuum only sticks on an empty DB — do this before migrations.
-	if !memory {
-		enableIncrementalVacuum(sqlDB)
-	}
-
-	if err := applyPerformancePragmas(sqlDB, memory); err != nil {
-		_ = sqlDB.Close()
-		return nil, fmt.Errorf("sqlite performance pragmas: %w", err)
-	}
-
-	goose.SetBaseFS(migrations.FS)
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		_ = sqlDB.Close()
+	if err := ensureTimeseriesSchema(tsDB); err != nil {
+		_ = tsDB.Close()
 		return nil, err
 	}
-	if err := goose.Up(sqlDB, "."); err != nil {
-		_ = sqlDB.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
+
+	// 2) Open state DB.
+	stateDB, stateMem, err := openSQLite(opts.Path, false)
+	if err != nil {
+		_ = tsDB.Close()
+		return nil, fmt.Errorf("open state db: %w", err)
 	}
 
-	// Re-apply post-migration (goose may open nested connections; keep profile sticky).
-	if err := applyPerformancePragmas(sqlDB, memory); err != nil {
-		_ = sqlDB.Close()
-		return nil, fmt.Errorf("sqlite performance pragmas (post-migrate): %w", err)
+	// 3) Copy legacy samples out of state before migration 00005 drops them.
+	if _, err := migrateLegacySamples(stateDB, tsDB, tsPath); err != nil {
+		_ = stateDB.Close()
+		_ = tsDB.Close()
+		return nil, fmt.Errorf("migrate legacy samples: %w", err)
 	}
 
-	if !memory && path != "" {
-		_ = os.Chmod(path, 0o600)
+	// 4) State schema migrations (00005 drops traffic_samples from state).
+	goose.SetBaseFS(migrations.FS)
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		_ = stateDB.Close()
+		_ = tsDB.Close()
+		return nil, err
+	}
+	if err := goose.Up(stateDB, "."); err != nil {
+		_ = stateDB.Close()
+		_ = tsDB.Close()
+		return nil, fmt.Errorf("migrate state: %w", err)
 	}
 
-	// Nudge the query planner after schema is in place.
-	_, _ = sqlDB.Exec(`PRAGMA optimize`)
+	// Re-apply pragmas after goose.
+	if err := applyPerformancePragmas(stateDB, stateMem); err != nil {
+		_ = stateDB.Close()
+		_ = tsDB.Close()
+		return nil, fmt.Errorf("state pragmas: %w", err)
+	}
+	if err := applyPerformancePragmas(tsDB, tsMem); err != nil {
+		_ = stateDB.Close()
+		_ = tsDB.Close()
+		return nil, fmt.Errorf("timeseries pragmas: %w", err)
+	}
+	if !tsMem {
+		_, _ = tsDB.Exec(`PRAGMA cache_size=-131072`)
+		_, _ = tsDB.Exec(`PRAGMA mmap_size=536870912`)
+		_, _ = tsDB.Exec(`PRAGMA foreign_keys=OFF`)
+	}
+	_, _ = stateDB.Exec(`PRAGMA optimize`)
+	_, _ = tsDB.Exec(`PRAGMA optimize`)
 
-	return &Store{db: sqlDB, memory: memory}, nil
+	return &Store{
+		db:     stateDB,
+		ts:     tsDB,
+		memory: stateMem && tsMem,
+		tsPath: tsPath,
+	}, nil
 }
 
-// Close optimizes then closes the database.
+// Close optimizes and closes both databases.
 func (s *Store) Close() error {
-	if s.db == nil {
-		return nil
+	var first error
+	if s.ts != nil {
+		_, _ = s.ts.Exec(`PRAGMA optimize`)
+		if !s.memory {
+			_, _ = s.ts.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+		}
+		if err := s.ts.Close(); err != nil && first == nil {
+			first = err
+		}
+		s.ts = nil
 	}
-	s.Optimize()
-	if !s.memory {
-		// Best-effort WAL flush so the main file is consistent on disk.
-		_ = s.CheckpointWAL()
+	if s.db != nil {
+		s.Optimize()
+		if !s.memory {
+			_ = s.CheckpointWAL()
+		}
+		if err := s.db.Close(); err != nil && first == nil {
+			first = err
+		}
+		s.db = nil
 	}
-	return s.db.Close()
+	return first
 }
 
-// DB exposes the underlying *sql.DB (for tests).
+// DB exposes the underlying state *sql.DB (for tests).
 func (s *Store) DB() *sql.DB { return s.db }
 
-// Ping checks connectivity.
+// TSDB exposes the timeseries *sql.DB (for tests).
+func (s *Store) TSDB() *sql.DB { return s.ts }
+
+// TimeseriesPath returns the path/URI of the timeseries database.
+func (s *Store) TimeseriesPath() string { return s.tsPath }
+
+// Ping checks both databases.
 func (s *Store) Ping(ctx context.Context) error {
-	return s.db.PingContext(ctx)
+	if err := s.db.PingContext(ctx); err != nil {
+		return err
+	}
+	if s.ts != nil {
+		return s.ts.PingContext(ctx)
+	}
+	return nil
 }
 
-// WithTx runs fn inside a single SQLite transaction (batched writes for high volume).
+// WithTx runs fn inside a single state-DB transaction.
 func (s *Store) WithTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -131,6 +167,56 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
 		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
+}
+
+// PerformanceInfoPair reports pragmas for state + timeseries files.
+type PerformanceInfoPair struct {
+	State      PerformanceInfo `json:"state"`
+	Timeseries PerformanceInfo `json:"timeseries"`
+	TSPath     string          `json:"timeseries_path"`
+}
+
+// PerformanceInfoBoth reads PRAGMA profiles for both DBs.
+func (s *Store) PerformanceInfoBoth() (PerformanceInfoPair, error) {
+	st, err := s.performanceInfoDB(s.db)
+	if err != nil {
+		return PerformanceInfoPair{}, err
+	}
+	var ts PerformanceInfo
+	if s.ts != nil {
+		ts, err = s.performanceInfoDB(s.ts)
+		if err != nil {
+			return PerformanceInfoPair{}, err
+		}
+	}
+	return PerformanceInfoPair{State: st, Timeseries: ts, TSPath: s.tsPath}, nil
+}
+
+func (s *Store) performanceInfoDB(sqlDB *sql.DB) (PerformanceInfo, error) {
+	get := func(name string) string {
+		v, _ := pragmaGet(sqlDB, name)
+		return v
+	}
+	return PerformanceInfo{
+		JournalMode:    get("journal_mode"),
+		Synchronous:    get("synchronous"),
+		CacheSize:      get("cache_size"),
+		MMapSize:       get("mmap_size"),
+		TempStore:      get("temp_store"),
+		BusyTimeout:    get("busy_timeout"),
+		AutoVacuum:     get("auto_vacuum"),
+		WALAutoChkpt:   get("wal_autocheckpoint"),
+		ForeignKeys:    get("foreign_keys"),
+		PageSize:       get("page_size"),
+		PageCount:      get("page_count"),
+		FreelistCount:  get("freelist_count"),
+		JournalSizeLim: get("journal_size_limit"),
+	}, nil
+}
+
+// PerformanceInfo reads the state DB profile (compat).
+func (s *Store) PerformanceInfo() (PerformanceInfo, error) {
+	return s.performanceInfoDB(s.db)
 }
 
 func nowRFC3339() string {

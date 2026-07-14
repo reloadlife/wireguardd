@@ -117,14 +117,13 @@ WHERE id=?`,
 	return nil
 }
 
-// DeletePeer removes a peer.
+// DeletePeer removes a peer and its timeseries samples.
 func (s *Store) DeletePeer(ctx context.Context, ifaceName, publicKey string) error {
-	res, err := s.db.ExecContext(ctx, `
-DELETE FROM peers WHERE id IN (
-  SELECT p.id FROM peers p
-  JOIN interfaces i ON i.id = p.interface_id
-  WHERE i.name = ? AND p.public_key = ?
-)`, ifaceName, publicKey)
+	peer, err := s.GetPeer(ctx, ifaceName, publicKey)
+	if err != nil {
+		return err
+	}
+	res, err := s.db.ExecContext(ctx, `DELETE FROM peers WHERE id = ?`, peer.ID)
 	if err != nil {
 		return err
 	}
@@ -132,6 +131,7 @@ DELETE FROM peers WHERE id IN (
 	if n == 0 {
 		return ErrNotFound
 	}
+	_ = s.DeletePeerSamples(ctx, peer.ID)
 	return nil
 }
 

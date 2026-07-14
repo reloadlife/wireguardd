@@ -116,42 +116,23 @@ type PerformanceInfo struct {
 	JournalSizeLim string `json:"journal_size_limit"`
 }
 
-// PerformanceInfo reads the live PRAGMA profile.
-func (s *Store) PerformanceInfo() (PerformanceInfo, error) {
-	get := func(name string) string {
-		v, _ := pragmaGet(s.db, name)
-		return v
-	}
-	return PerformanceInfo{
-		JournalMode:    get("journal_mode"),
-		Synchronous:    get("synchronous"),
-		CacheSize:      get("cache_size"),
-		MMapSize:       get("mmap_size"),
-		TempStore:      get("temp_store"),
-		BusyTimeout:    get("busy_timeout"),
-		AutoVacuum:     get("auto_vacuum"),
-		WALAutoChkpt:   get("wal_autocheckpoint"),
-		ForeignKeys:    get("foreign_keys"),
-		PageSize:       get("page_size"),
-		PageCount:      get("page_count"),
-		FreelistCount:  get("freelist_count"),
-		JournalSizeLim: get("journal_size_limit"),
-	}, nil
-}
-
-// Optimize runs SQLite's query planner maintenance (cheap; safe to call often).
+// Optimize runs SQLite's query planner maintenance on the state DB.
 func (s *Store) Optimize() {
-	_, _ = s.db.Exec(`PRAGMA optimize`)
+	if s.db != nil {
+		_, _ = s.db.Exec(`PRAGMA optimize`)
+	}
+	if s.ts != nil {
+		_, _ = s.ts.Exec(`PRAGMA optimize`)
+	}
 }
 
-// CheckpointWAL flushes the write-ahead log into the main DB file (TRUNCATE).
+// CheckpointWAL flushes the write-ahead log into the state DB file (TRUNCATE).
 func (s *Store) CheckpointWAL() error {
 	_, err := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
 	return err
 }
 
-// IncrementalVacuum reclaims free pages after large deletes (e.g. sample purge).
-// pages=0 means "as many as possible" in SQLite.
+// IncrementalVacuum reclaims free pages on the state DB.
 func (s *Store) IncrementalVacuum(pages int) {
 	if pages < 0 {
 		pages = 0

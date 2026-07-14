@@ -265,6 +265,8 @@ type DaemonConfig struct {
 	ReconcileInterval  string `json:"reconcile_interval"`
 	AllowHooks         bool   `json:"allow_hooks"`
 	BandwidthBackend   string `json:"bandwidth_backend"`
+	DBPath             string `json:"db_path,omitempty"`
+	TimeseriesPath     string `json:"timeseries_path,omitempty"`
 	ReadOnly           bool   `json:"read_only"`
 }
 

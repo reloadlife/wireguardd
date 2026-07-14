@@ -22,7 +22,8 @@ type DaemonConfig struct {
 		EnterpriseOID string `mapstructure:"enterprise_oid"`
 	} `mapstructure:"snmp"`
 	DB struct {
-		Path string `mapstructure:"path"`
+		Path           string `mapstructure:"path"`
+		TimeseriesPath string `mapstructure:"timeseries_path"` // empty → <dir>/timeseries.db
 	} `mapstructure:"db"`
 	Auth struct {
 		Token string `mapstructure:"token"`
@@ -65,6 +66,7 @@ func LoadDaemon(path string) (*DaemonConfig, error) {
 	// Flat env bindings for common keys
 	_ = v.BindEnv("auth.token", "WIREGUARDD_AUTH_TOKEN", "WIREGUARDD_API_TOKEN")
 	_ = v.BindEnv("db.path", "WIREGUARDD_DB_PATH")
+	_ = v.BindEnv("db.timeseries_path", "WIREGUARDD_DB_TIMESERIES_PATH")
 	_ = v.BindEnv("listen.http", "WIREGUARDD_LISTEN_HTTP")
 
 	var cfg DaemonConfig

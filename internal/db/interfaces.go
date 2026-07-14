@@ -124,8 +124,14 @@ WHERE id=?`,
 	return nil
 }
 
-// DeleteInterface removes an interface and its peers (cascade).
+// DeleteInterface removes an interface and its peers (cascade), and timeseries samples.
 func (s *Store) DeleteInterface(ctx context.Context, name string) error {
+	// Collect peer IDs first — samples live in a separate DB (no FK cascade).
+	peers, _ := s.ListPeersByInterface(ctx, name)
+	ids := make([]int64, 0, len(peers))
+	for _, p := range peers {
+		ids = append(ids, p.ID)
+	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM interfaces WHERE name = ?`, name)
 	if err != nil {
 		return err
@@ -134,13 +140,22 @@ func (s *Store) DeleteInterface(ctx context.Context, name string) error {
 	if n == 0 {
 		return ErrNotFound
 	}
+	_ = s.DeletePeersSamples(ctx, ids)
 	return nil
 }
 
 // ImportInterface upserts an interface and atomically replaces its peers.
 // The whole import is one SQLite transaction so reconcile/API never observe a partial peer set.
+// Timeseries rows for replaced peers are purged from timeseries.db after the state commit.
 func (s *Store) ImportInterface(ctx context.Context, iface *Interface, peers []Peer) error {
-	return s.WithTx(ctx, func(tx *sql.Tx) error {
+	var stalePeerIDs []int64
+	if existing, err := s.GetInterfaceByName(ctx, iface.Name); err == nil {
+		old, _ := s.ListPeersByInterface(ctx, existing.Name)
+		for _, p := range old {
+			stalePeerIDs = append(stalePeerIDs, p.ID)
+		}
+	}
+	err := s.WithTx(ctx, func(tx *sql.Tx) error {
 		now := nowRFC3339()
 		if iface.TableMode == "" {
 			iface.TableMode = "auto"
@@ -257,6 +272,11 @@ INSERT INTO peers (
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	_ = s.DeletePeersSamples(ctx, stalePeerIDs)
+	return nil
 }
 
 type scannable interface {

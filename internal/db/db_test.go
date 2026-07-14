@@ -96,24 +96,43 @@ func TestInterfaceAndPeerCRUD(t *testing.T) {
 }
 
 func TestSQLitePerformanceMode(t *testing.T) {
-	// On-disk DB so WAL applies.
-	path := t.TempDir() + "/perf.db"
-	s, err := Open(path)
+	// On-disk DBs so WAL applies (state + timeseries).
+	dir := t.TempDir()
+	s, err := Open(dir + "/state.db")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 
-	info, err := s.PerformanceInfo()
+	require.Equal(t, dir+"/timeseries.db", s.TimeseriesPath())
+
+	pair, err := s.PerformanceInfoBoth()
 	require.NoError(t, err)
-	require.Equal(t, "wal", strings.ToLower(info.JournalMode))
-	// synchronous: 1 = NORMAL
-	require.Equal(t, "1", info.Synchronous)
-	require.Equal(t, "1", info.ForeignKeys)
-	require.Equal(t, "2", info.TempStore) // 2 = MEMORY
-	// cache_size negative means KiB
-	require.Equal(t, "-65536", info.CacheSize)
-	require.NotEqual(t, "0", info.BusyTimeout)
-	// auto_vacuum: 2 = INCREMENTAL on new DBs
-	require.Equal(t, "2", info.AutoVacuum, "new DB should use incremental auto_vacuum")
+	// state
+	require.Equal(t, "wal", strings.ToLower(pair.State.JournalMode))
+	require.Equal(t, "1", pair.State.Synchronous)
+	require.Equal(t, "1", pair.State.ForeignKeys)
+	require.Equal(t, "2", pair.State.TempStore)
+	require.Equal(t, "-65536", pair.State.CacheSize)
+	require.Equal(t, "2", pair.State.AutoVacuum)
+	// timeseries — larger cache, no FKs
+	require.Equal(t, "wal", strings.ToLower(pair.Timeseries.JournalMode))
+	require.Equal(t, "1", pair.Timeseries.Synchronous)
+	require.Equal(t, "0", pair.Timeseries.ForeignKeys)
+	require.Equal(t, "-131072", pair.Timeseries.CacheSize)
+	require.Equal(t, "2", pair.Timeseries.AutoVacuum)
+
+	// samples must not live on the state connection
+	var n int
+	err = s.DB().QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='traffic_samples'`).Scan(&n)
+	require.NoError(t, err)
+	require.Equal(t, 0, n, "state.db must not contain traffic_samples")
+	err = s.TSDB().QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='traffic_samples'`).Scan(&n)
+	require.NoError(t, err)
+	require.Equal(t, 1, n, "timeseries.db must contain traffic_samples")
+}
+
+func TestDefaultTimeseriesPath(t *testing.T) {
+	require.Equal(t, "/var/lib/wireguardd/timeseries.db", DefaultTimeseriesPath("/var/lib/wireguardd/state.db"))
+	require.Contains(t, DefaultTimeseriesPath(":memory:"), "mode=memory")
 }
 
 func TestInsertSamplesBatch(t *testing.T) {

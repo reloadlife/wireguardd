@@ -20,7 +20,14 @@ wireguardctl  ──REST (HTTP / Unix)──►  wireguardd
 
 Desired configuration lives in SQLite. Live kernel state is applied every few seconds. Optional hybrid mode also writes `/etc/wireguard/<iface>.conf` for boot via `wg-quick`.
 
-SQLite runs in a **performance profile** suited to high sample volume: WAL + `synchronous=NORMAL`, 64 MiB page cache, 256 MiB mmap, `temp_store=MEMORY`, 10 s busy timeout, incremental auto-vacuum (new DBs), batched traffic-sample inserts, and batched retention purge with `incremental_vacuum`.
+**Two SQLite files** keep config SoT off the hot write path:
+
+| File | Contents | Profile |
+|------|----------|---------|
+| `state.db` (`db.path`) | interfaces, peers, events | WAL, NORMAL sync, 64 MiB cache, 256 MiB mmap |
+| `timeseries.db` (`db.timeseries_path`, default `<dir>/timeseries.db`) | `traffic_samples` only | WAL, NORMAL sync, **128 MiB** cache, **512 MiB** mmap, no FKs, batched inserts/purge |
+
+Both use `temp_store=MEMORY`, 10 s busy timeout, incremental auto-vacuum (new files). Upgrades copy legacy samples out of `state.db` before dropping that table.
 
 ## Features
 

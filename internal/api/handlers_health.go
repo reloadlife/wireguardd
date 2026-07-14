@@ -28,7 +28,7 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, pkgapi.DaemonConfig{
+	cfg := pkgapi.DaemonConfig{
 		HTTPListen:         s.cfg.Listen.HTTP,
 		UnixListen:         s.cfg.Listen.Unix,
 		MetricsListen:      s.cfg.Listen.Metrics,
@@ -41,8 +41,14 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		ReconcileInterval:  s.cfg.WireGuard.ReconcileInterval,
 		AllowHooks:         s.cfg.WireGuard.AllowHooks,
 		BandwidthBackend:   s.cfg.WireGuard.BandwidthBackend,
+		DBPath:             s.cfg.DB.Path,
+		TimeseriesPath:     s.cfg.DB.TimeseriesPath,
 		ReadOnly:           s.cfg.ReadOnly,
-	})
+	}
+	if s.store != nil && cfg.TimeseriesPath == "" {
+		cfg.TimeseriesPath = s.store.TimeseriesPath()
+	}
+	writeJSON(w, http.StatusOK, cfg)
 }
 
 func (s *Server) handleReconcile(w http.ResponseWriter, r *http.Request) {

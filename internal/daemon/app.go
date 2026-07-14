@@ -40,11 +40,18 @@ func New(cfg *config.DaemonConfig, log *slog.Logger) *App {
 
 // Run starts the daemon until signal.
 func (a *App) Run(ctx context.Context) error {
-	store, err := db.Open(a.cfg.DB.Path)
+	store, err := db.OpenWithOptions(db.OpenOptions{
+		Path:           a.cfg.DB.Path,
+		TimeseriesPath: a.cfg.DB.TimeseriesPath,
+	})
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
 	defer func() { _ = store.Close() }()
+	a.log.Info("sqlite open",
+		"state", a.cfg.DB.Path,
+		"timeseries", store.TimeseriesPath(),
+	)
 
 	var backend wgbackend.Backend
 	if a.cfg.WireGuard.UseMockBackend {
