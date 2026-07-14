@@ -84,6 +84,8 @@ type Backend interface {
 	SyncBandwidth(ctx context.Context, iface string, peers []DesiredPeer) error
 	// SyncRoutes installs AllowedIP routes + policy rules per Table= (wg-quick).
 	SyncRoutes(ctx context.Context, desired DesiredInterface) error
+	// SyncDNS applies host DNS for the interface (resolvectl / resolvconf).
+	SyncDNS(ctx context.Context, desired DesiredInterface) error
 	// ExportConf writes a conf file (wg-quick style) for the interface.
 	ExportConf(ctx context.Context, path string, content string) error
 	// RunHooks runs pre/post up/down if allowed.

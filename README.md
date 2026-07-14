@@ -24,7 +24,7 @@ Desired configuration lives in SQLite. Live kernel state is applied every few se
 
 | Area | Capabilities |
 |------|----------------|
-| Interfaces | Create/delete, up/down, listen port, fwmark, MTU, multi IPv4/IPv6 addresses, DNS, **full Table= routing** (`auto` / `off` / custom table + policy rules), Pre/Post hooks (opt-in), import/export wg-quick conf |
+| Interfaces | Create/delete, up/down, listen port, fwmark, MTU, multi IPv4/IPv6 addresses, **full DNS host apply** (`resolvectl` / `resolvconf`), **full Table= routing**, Pre/Post hooks (opt-in), import/export wg-quick conf |
 | Peers | AllowedIPs, endpoint, PSK, keepalive, assigned IPs, tags/notes, client conf + QR (requires `generate_client_key` or `client_private_key`, plus interface `public_endpoint`) |
 | Policy | Suspend (strip AllowedIPs + blackhole routes), traffic quotas (auto-suspend), bandwidth limits (tc) |
 | Stats | Per-peer / per-interface totals + rates, handshake/connected tracking |
@@ -90,6 +90,19 @@ Environment overrides use prefix `WIREGUARDD_` / `WIREGUARDCTL_` (e.g. `WIREGUAR
 | `database` | SQLite only; apply via wgctrl/`ip` |
 | `wg-quick` | Also write conf files under `conf_dir` |
 | `hybrid` | SQLite SoT + write conf after each successful apply (default) |
+
+### DNS host apply (`DNS=`, wg-quick compatible)
+
+Mixed `DNS` list: IP entries are nameservers; non-IP entries are search/routing domains.
+
+| `dns_backend` | Behavior |
+|---------------|----------|
+| `auto` (default) | Prefer `resolvectl`, else `resolvconf` |
+| `resolvectl` | `resolvectl dns/domain/default-route <iface> …` |
+| `resolvconf` | Pipe nameserver/search into `resolvconf -a tun.<iface>` |
+| `none` | Store + conf export only (no host apply) |
+
+Cleared on interface down/delete (`resolvectl revert` / `resolvconf -d`).
 
 ### Routing table (`Table=`, wg-quick compatible)
 

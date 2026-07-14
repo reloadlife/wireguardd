@@ -55,6 +55,7 @@ func (a *App) Run(ctx context.Context) error {
 			ConfDir:          a.cfg.WireGuard.ConfDir,
 			AllowHooks:       a.cfg.WireGuard.AllowHooks,
 			BandwidthBackend: a.cfg.WireGuard.BandwidthBackend,
+			DNSBackend:       a.cfg.WireGuard.DNSBackend,
 		})
 		if err != nil {
 			return fmt.Errorf("open wireguard backend (set wireguard.use_mock_backend: true for airgap/dev): %w", err)

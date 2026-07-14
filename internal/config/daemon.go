@@ -35,6 +35,7 @@ type DaemonConfig struct {
 		ReconcileInterval     string `mapstructure:"reconcile_interval"`
 		AllowHooks            bool   `mapstructure:"allow_hooks"`
 		BandwidthBackend      string `mapstructure:"bandwidth_backend"`
+		DNSBackend            string `mapstructure:"dns_backend"` // auto | resolvectl | resolvconf | none
 		UseMockBackend        bool   `mapstructure:"use_mock_backend"`
 	} `mapstructure:"wireguard"`
 	Log struct {
@@ -93,6 +94,7 @@ func setDaemonDefaults(v *viper.Viper) {
 	v.SetDefault("wireguard.reconcile_interval", "5s")
 	v.SetDefault("wireguard.allow_hooks", false)
 	v.SetDefault("wireguard.bandwidth_backend", "tc")
+	v.SetDefault("wireguard.dns_backend", "auto")
 	v.SetDefault("wireguard.use_mock_backend", false)
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")

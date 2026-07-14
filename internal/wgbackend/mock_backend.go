@@ -17,6 +17,7 @@ type MockBackend struct {
 	Bandwidth   map[string]map[string]DesiredPeer // iface -> pubkey -> peer limits
 	RouteTables map[string]string                 // iface -> table mode/id
 	RouteCounts map[string]int                    // iface -> allowed-ip route count
+	DNSApplied  map[string]DNSConfig              // iface -> last SyncDNS
 	// FailNext if set causes the next mutating call to fail.
 	FailNext error
 }
@@ -29,6 +30,7 @@ func NewMock() *MockBackend {
 		Bandwidth:   make(map[string]map[string]DesiredPeer),
 		RouteTables: make(map[string]string),
 		RouteCounts: make(map[string]int),
+		DNSApplied:  make(map[string]DNSConfig),
 	}
 }
 
@@ -221,6 +223,21 @@ func (m *MockBackend) SyncRoutes(ctx context.Context, desired DesiredInterface) 
 		m.RouteCounts = make(map[string]int)
 	}
 	m.RouteCounts[desired.Name] = n
+	return nil
+}
+
+// SyncDNS records applied DNS for tests.
+func (m *MockBackend) SyncDNS(ctx context.Context, desired DesiredInterface) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.DNSApplied == nil {
+		m.DNSApplied = make(map[string]DNSConfig)
+	}
+	if !desired.Enabled || len(desired.DNS) == 0 {
+		delete(m.DNSApplied, desired.Name)
+		return nil
+	}
+	m.DNSApplied[desired.Name] = ParseDNSList(desired.DNS)
 	return nil
 }
 

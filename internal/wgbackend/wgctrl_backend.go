@@ -19,8 +19,10 @@ type HostBackend struct {
 	confDir          string
 	allowHooks       bool
 	bandwidthBackend string
+	dnsBackend       string
 	tc               *tcState
 	routes           *routeState
+	dns              *dnsState
 }
 
 // HostOptions configures HostBackend.
@@ -28,6 +30,7 @@ type HostOptions struct {
 	ConfDir          string
 	AllowHooks       bool
 	BandwidthBackend string
+	DNSBackend       string // auto | resolvectl | resolvconf | none
 	Runner           Runner
 }
 
@@ -45,6 +48,10 @@ func NewHostBackend(opts HostOptions) (*HostBackend, error) {
 	if bw == "" {
 		bw = "tc"
 	}
+	dns := opts.DNSBackend
+	if dns == "" {
+		dns = DNSBackendAuto
+	}
 	return &HostBackend{
 		client:           client,
 		runner:           r,
@@ -52,7 +59,9 @@ func NewHostBackend(opts HostOptions) (*HostBackend, error) {
 		allowHooks:       opts.AllowHooks,
 		tc:               newTCState(),
 		routes:           newRouteState(),
+		dns:              newDNSState(),
 		bandwidthBackend: bw,
+		dnsBackend:       dns,
 	}, nil
 }
 
@@ -157,6 +166,7 @@ func (b *HostBackend) EnsureInterface(ctx context.Context, desired DesiredInterf
 
 // RemoveInterface implements Backend.
 func (b *HostBackend) RemoveInterface(ctx context.Context, name string) error {
+	b.clearInterfaceDNS(ctx, name)
 	b.clearInterfaceTC(ctx, name)
 	b.clearInterfaceRoutes(ctx, name)
 	return b.deleteLink(ctx, name)

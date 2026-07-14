@@ -123,7 +123,7 @@ func ifaceCreateFields() []fieldDef {
 		{Key: "name", Label: "Name", Hint: "wg0"},
 		{Key: "port", Label: "Listen port", Hint: "51820"},
 		{Key: "addresses", Label: "Addresses", Hint: "10.7.0.1/24, fd00::1/64"},
-		{Key: "dns", Label: "DNS", Hint: "1.1.1.1, 2606:4700:4700::1111"},
+		{Key: "dns", Label: "DNS", Hint: "1.1.1.1, example.com (IPs + domains)"},
 		{Key: "mtu", Label: "MTU", Hint: "1420 (optional)"},
 		{Key: "table", Label: "Table", Hint: "auto | off | number"},
 		{Key: "table_id", Label: "Table ID", Hint: "when table=number"},

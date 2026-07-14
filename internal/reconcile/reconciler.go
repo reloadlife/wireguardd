@@ -185,6 +185,10 @@ func (r *Reconciler) run(ctx context.Context) error {
 		if err := r.backend.SyncRoutes(ctx, di); err != nil {
 			r.log.Error("route sync", "iface", iface.Name, "err", err)
 		}
+		// Host DNS (resolvectl / resolvconf).
+		if err := r.backend.SyncDNS(ctx, di); err != nil {
+			r.log.Error("dns sync", "iface", iface.Name, "err", err)
+		}
 		if r.cfg.AllowHooks && goingUp && iface.PostUp != "" {
 			_ = r.backend.RunHook(ctx, iface.PostUp)
 		}
