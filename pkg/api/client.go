@@ -308,6 +308,17 @@ func (c *Client) PeerClientConfig(ctx context.Context, iface, pubkey string) (st
 	return out.Config, nil
 }
 
+// IssueClientKey generates or returns a client private key + conf for a peer.
+// Pass rotate=true for adopted peers (replaces peer public key).
+func (c *Client) IssueClientKey(ctx context.Context, iface, pubkey string, rotate bool) (*IssueClientKeyResponse, error) {
+	var out IssueClientKeyResponse
+	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + wgutil.PathEscapeKey(pubkey) + "/issue-client-key"
+	if err := c.do(ctx, http.MethodPost, path, IssueClientKeyRequest{Rotate: rotate}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Discover previews live host WireGuard interfaces for adoption.
 func (c *Client) Discover(ctx context.Context, names ...string) (*AdoptReport, error) {
 	var out AdoptReport

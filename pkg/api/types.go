@@ -112,6 +112,7 @@ type PeerCreateRequest struct {
 // PeerUpdateRequest patches a peer.
 type PeerUpdateRequest struct {
 	PresharedKey        *string  `json:"preshared_key,omitempty"`
+	ClientPrivateKey    *string  `json:"client_private_key,omitempty"` // must match public_key if set
 	Name                *string  `json:"name,omitempty"`
 	Notes               *string  `json:"notes,omitempty"`
 	AllowedIPs          []string `json:"allowed_ips,omitempty"`
@@ -123,6 +124,23 @@ type PeerUpdateRequest struct {
 	BandwidthTxBps      *int64   `json:"bandwidth_tx_bps,omitempty"`
 	Tags                []string `json:"tags,omitempty"`
 	Suspended           *bool    `json:"suspended,omitempty"`
+}
+
+// IssueClientKeyRequest controls client key issuance for an existing peer.
+type IssueClientKeyRequest struct {
+	// Rotate replaces the peer public key with a newly generated keypair.
+	// Required for adopted peers (server never has the original client private key).
+	// The existing client must re-import the new config.
+	Rotate bool `json:"rotate"`
+}
+
+// IssueClientKeyResponse returns the new peer identity and ready-to-use client conf.
+type IssueClientKeyResponse struct {
+	Peer              Peer   `json:"peer"`
+	ClientPrivateKey  string `json:"client_private_key"`
+	PreviousPublicKey string `json:"previous_public_key,omitempty"`
+	Config            string `json:"config"`
+	Rotated           bool   `json:"rotated"`
 }
 
 // Peer is the API representation of a peer.

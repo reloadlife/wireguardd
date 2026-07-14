@@ -269,6 +269,32 @@ func peerCmd(configPath *string) *cobra.Command {
 			return nil
 		},
 	})
+	var issueRotate bool
+	issueCmd := &cobra.Command{
+		Use:   "issue-client-key [iface] [pubkey]",
+		Short: "Issue client private key + conf (use --rotate for adopted peers)",
+		Long: `Adopted peers only have a public key on the server. To produce a client
+config either supply the original private key via PATCH, or --rotate to mint a
+new keypair (the old client config stops working until re-imported).`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, c, err := loadClient(*configPath)
+			if err != nil {
+				return err
+			}
+			out, err := c.IssueClientKey(context.Background(), args[0], args[1], issueRotate)
+			if err != nil {
+				return err
+			}
+			if out.Config != "" {
+				fmt.Print(out.Config)
+				return nil
+			}
+			return printJSON(out)
+		},
+	}
+	issueCmd.Flags().BoolVar(&issueRotate, "rotate", false, "generate new keypair (required for adopted peers without a stored client key)")
+	cmd.AddCommand(issueCmd)
 	cmd.AddCommand(&cobra.Command{
 		Use:   "reset-traffic [iface] [pubkey]",
 		Short: "Soft-reset peer traffic counters",

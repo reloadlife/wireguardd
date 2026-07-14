@@ -168,6 +168,24 @@ func (s *Server) handleUpdatePeer(w http.ResponseWriter, r *http.Request) {
 	if req.PresharedKey != nil {
 		peer.PresharedKey = *req.PresharedKey
 	}
+	if req.ClientPrivateKey != nil {
+		priv := strings.TrimSpace(*req.ClientPrivateKey)
+		if priv == "" {
+			peer.ClientPrivateKey = ""
+		} else {
+			pub, err := crypto.PublicFromPrivate(priv)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid_key", "client_private_key invalid")
+				return
+			}
+			if pub != peer.PublicKey {
+				writeError(w, http.StatusBadRequest, "validation",
+					"client_private_key does not match peer public_key (use POST .../issue-client-key with rotate=true to replace identity)")
+				return
+			}
+			peer.ClientPrivateKey = priv
+		}
+	}
 	if req.Name != nil {
 		peer.Name = *req.Name
 	}
@@ -300,6 +318,108 @@ func (s *Server) handlePeerClientConfig(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, pkgapi.ClientConfigResponse{Config: cfg})
 }
 
+// handleIssueClientKey stores or generates a client private key for conf/QR export.
+//
+// Adopted peers only have a public key (the private key lives on the phone/laptop).
+// To produce a client conf you must either:
+//   - PATCH client_private_key if you still have the original key, or
+//   - POST here with {"rotate":true} to mint a new keypair (old client stops working
+//     until it imports the new config).
+func (s *Server) handleIssueClientKey(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	pubkey := chi.URLParam(r, "pubkey")
+	if n, err := wgutil.PathUnescapeKey(pubkey); err == nil {
+		pubkey = n
+	}
+	peer, err := s.store.GetPeer(r.Context(), name, pubkey)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found", "peer not found")
+		return
+	}
+	var req pkgapi.IssueClientKeyRequest
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+	}
+	// Also accept ?rotate=1
+	if r.URL.Query().Get("rotate") == "1" || r.URL.Query().Get("rotate") == "true" {
+		req.Rotate = true
+	}
+
+	prevPub := peer.PublicKey
+	rotated := false
+
+	if peer.ClientPrivateKey != "" && !req.Rotate {
+		// Already have a key — just return conf.
+		cfg, err := s.buildClientConfig(r, name, peer.PublicKey)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "client_config", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, pkgapi.IssueClientKeyResponse{
+			Peer:             s.toAPIPeer(peer, false),
+			ClientPrivateKey: peer.ClientPrivateKey,
+			Config:           cfg,
+			Rotated:          false,
+		})
+		return
+	}
+
+	if !req.Rotate && peer.ClientPrivateKey == "" {
+		writeError(w, http.StatusBadRequest, "client_key_missing",
+			"peer has no client_private_key (common after adopt). "+
+				"Either PATCH client_private_key with the original key, or POST with {\"rotate\":true} "+
+				"to generate a new keypair (client must re-import the config).")
+		return
+	}
+
+	// Mint a new keypair and replace peer identity.
+	kp, err := crypto.GenerateKeyPair()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "keygen_failed", err.Error())
+		return
+	}
+	peer.PublicKey = kp.PublicKey
+	peer.ClientPrivateKey = kp.PrivateKey
+	// Soft-reset counters against the new kernel peer (will be 0 after reconcile).
+	peer.RxBytesOffset = 0
+	peer.TxBytesOffset = 0
+	peer.LastRxBytes = 0
+	peer.LastTxBytes = 0
+	if err := s.store.UpdatePeer(r.Context(), peer); err != nil {
+		writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
+		return
+	}
+	// Drop samples for old identity; new peer_id is same row id.
+	_ = s.store.AddEvent(r.Context(), "warn", "audit", name, kp.PublicKey,
+		"client key issued (rotated peer public key; old client config invalid)",
+		fmt.Sprintf(`{"previous_public_key":%q}`, prevPub))
+	_ = s.ForceReconcile(r.Context())
+	rotated = true
+
+	cfg, err := s.buildClientConfig(r, name, peer.PublicKey)
+	if err != nil {
+		// Key is stored; conf may still fail if public_endpoint missing.
+		writeJSON(w, http.StatusOK, pkgapi.IssueClientKeyResponse{
+			Peer:              s.toAPIPeer(peer, true),
+			ClientPrivateKey:  peer.ClientPrivateKey,
+			PreviousPublicKey: prevPub,
+			Config:            "",
+			Rotated:           rotated,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, pkgapi.IssueClientKeyResponse{
+		Peer:              s.toAPIPeer(peer, true),
+		ClientPrivateKey:  peer.ClientPrivateKey,
+		PreviousPublicKey: prevPub,
+		Config:            cfg,
+		Rotated:           rotated,
+	})
+}
+
 func (s *Server) handlePeerQR(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	pubkey := chi.URLParam(r, "pubkey")
@@ -337,7 +457,8 @@ func (s *Server) buildClientConfig(r *http.Request, ifaceName, pubkey string) (s
 		return "", errors.New("peer not found")
 	}
 	if peer.ClientPrivateKey == "" {
-		return "", errors.New("peer has no client_private_key; recreate with generate_client_key=true")
+		return "", errors.New("peer has no client_private_key (typical for adopted peers). " +
+			"PATCH client_private_key if you have it, or POST /v1/interfaces/{iface}/peers/{pubkey}/issue-client-key with {\"rotate\":true}")
 	}
 	addrs := peer.AssignedIPs
 	if len(addrs) == 0 {

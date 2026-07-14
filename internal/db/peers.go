@@ -89,6 +89,7 @@ ORDER BY i.name, p.name, p.public_key`)
 
 // UpdatePeer updates peer configuration and policy.
 // Runtime stats (handshake, endpoint, counters, rates) are owned by UpdatePeerStats.
+// PublicKey is updated when changed (client key rotation).
 func (s *Store) UpdatePeer(ctx context.Context, p *Peer) error {
 	now := nowRFC3339()
 	suspended := 0
@@ -97,11 +98,11 @@ func (s *Store) UpdatePeer(ctx context.Context, p *Peer) error {
 	}
 	res, err := s.db.ExecContext(ctx, `
 UPDATE peers SET
-  preshared_key=?, client_private_key=?, name=?, notes=?, allowed_ips=?, assigned_ips=?, endpoint=?,
+  public_key=?, preshared_key=?, client_private_key=?, name=?, notes=?, allowed_ips=?, assigned_ips=?, endpoint=?,
   persistent_keepalive=?, suspended=?, traffic_limit_bytes=?, bandwidth_rx_bps=?,
   bandwidth_tx_bps=?, rx_bytes_offset=?, tx_bytes_offset=?, tags=?, updated_at=?
 WHERE id=?`,
-		p.PresharedKey, p.ClientPrivateKey, p.Name, p.Notes, encodeJSONList(p.AllowedIPs), encodeJSONList(p.AssignedIPs),
+		p.PublicKey, p.PresharedKey, p.ClientPrivateKey, p.Name, p.Notes, encodeJSONList(p.AllowedIPs), encodeJSONList(p.AssignedIPs),
 		p.Endpoint, p.PersistentKeepalive, suspended, p.TrafficLimitBytes, p.BandwidthRxBps,
 		p.BandwidthTxBps, p.RxBytesOffset, p.TxBytesOffset,
 		encodeJSONList(p.Tags), now, p.ID,
