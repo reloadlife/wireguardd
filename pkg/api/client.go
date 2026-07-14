@@ -308,6 +308,36 @@ func (c *Client) PeerClientConfig(ctx context.Context, iface, pubkey string) (st
 	return out.Config, nil
 }
 
+// PeerQR fetches the client config as a PNG QR code.
+func (c *Client) PeerQR(ctx context.Context, iface, pubkey string) ([]byte, error) {
+	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + wgutil.PathEscapeKey(pubkey) + "/qr"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "image/png")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		var eb ErrorBody
+		if json.Unmarshal(data, &eb) == nil && eb.Error.Message != "" {
+			return nil, &APIError{Status: resp.StatusCode, Code: eb.Error.Code, Message: eb.Error.Message}
+		}
+		return nil, &APIError{Status: resp.StatusCode, Message: string(data)}
+	}
+	return data, nil
+}
+
 // IssueClientKey generates or returns a client private key + conf for a peer.
 // Pass rotate=true for adopted peers (replaces peer public key).
 func (c *Client) IssueClientKey(ctx context.Context, iface, pubkey string, rotate bool) (*IssueClientKeyResponse, error) {

@@ -40,6 +40,7 @@ type actionDoneMsg struct {
 
 type clientConfMsg struct {
 	config string
+	qr     string // terminal QR (optional)
 	err    error
 }
 
@@ -172,7 +173,15 @@ func doFetchClientConf(c *pkgapi.Client, iface, pub string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		cfg, err := c.PeerClientConfig(ctx, iface, pub)
-		return clientConfMsg{config: cfg, err: err}
+		if err != nil {
+			return clientConfMsg{err: err}
+		}
+		qr, qerr := RenderQR(cfg)
+		if qerr != nil {
+			// still show conf even if QR fails
+			return clientConfMsg{config: cfg, err: nil}
+		}
+		return clientConfMsg{config: cfg, qr: qr}
 	}
 }
 

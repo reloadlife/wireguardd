@@ -68,6 +68,7 @@ type rootModel struct {
 	confirmArg2 string
 
 	clientConf string
+	clientQR   string // terminal QR for client conf
 	detailPeer *pkgapi.Peer
 	detailIf   *pkgapi.Interface
 	scroll     int
@@ -207,6 +208,7 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.clientConf = msg.config
+		m.clientQR = msg.qr
 		m.mode = modeClientConf
 		return m, nil
 
@@ -253,6 +255,7 @@ func (m rootModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key == "esc" || key == "q" || key == "enter" {
 			m.mode = modePeerDetail
 			m.clientConf = ""
+			m.clientQR = ""
 		}
 		return m, nil
 	default:
@@ -671,6 +674,11 @@ func (m rootModel) handlePeerDetailKey(key string) (tea.Model, tea.Cmd) {
 		if m.detailPeer != nil {
 			return m, doFetchClientConf(m.cfg.Client, m.detailPeer.InterfaceName, m.detailPeer.PublicKey)
 		}
+	case "Q":
+		// QR + conf (same fetch; view shows both)
+		if m.detailPeer != nil {
+			return m, doFetchClientConf(m.cfg.Client, m.detailPeer.InterfaceName, m.detailPeer.PublicKey)
+		}
 	case "D":
 		if m.detailPeer != nil {
 			m.confirm = confirmDelPeer
@@ -953,10 +961,7 @@ func (m rootModel) View() string {
 	case modePeerDetail:
 		mid = m.viewPeerDetailSized(w, mainH)
 	case modeClientConf:
-		mid = panelStyle.Width(w - 2).Height(mainH - 1).Render(
-			titleStyle.Render("Client config") + "\n\n" + m.clientConf + "\n\n" +
-				helpStyle.Render("esc / enter back"),
-		)
+		mid = fillHeight(m.viewClientConf(), w, mainH)
 	default:
 		// list modes: tabs + table + fill
 		var b strings.Builder
@@ -1017,7 +1022,7 @@ func (m rootModel) listHelp() string {
 	case tabInterfaces:
 		return base + " · u/d up/down · D delete · x export"
 	case tabPeers:
-		return base + " · s suspend · t reset traffic · c client-conf · D delete"
+		return base + " · s suspend · t reset · c conf · Q QR · D delete"
 	case tabKeys:
 		return base + " · g keypair · p psk"
 	default:
@@ -1266,7 +1271,7 @@ func (m rootModel) viewPeerDetail() string {
 	kv("BW limits", fmt.Sprintf("rx=%d tx=%d bps", p.BandwidthRxBps, p.BandwidthTxBps))
 	kv("Last handshake", p.LastHandshakeAt)
 	kv("Notes", p.Notes)
-	help := helpStyle.Render("esc back · e edit · s suspend/resume · t reset traffic · c client conf · D delete")
+	help := helpStyle.Render("esc back · e edit · s suspend · t reset · c conf · Q QR · D delete")
 	content := titleStyle.Render("Peer "+firstNonEmpty(p.Name, wgutil.ShortKey(p.PublicKey))) + "\n" + body.String() + "\n" + help
 	if m.width > 10 {
 		return panelStyle.Width(m.width - 4).Render(content)
@@ -1275,6 +1280,25 @@ func (m rootModel) viewPeerDetail() string {
 }
 
 func (m rootModel) viewClientConf() string {
-	help := helpStyle.Render("esc/enter back  ·  copy config from terminal")
-	return panelStyle.Render(titleStyle.Render("Client config") + "\n\n" + m.clientConf + "\n" + help)
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Client config + QR"))
+	b.WriteString("\n\n")
+	if m.clientQR != "" {
+		b.WriteString(m.clientQR)
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render("Scan with WireGuard mobile app"))
+		b.WriteString("\n\n")
+	} else {
+		b.WriteString(warnStyle.Render("(QR unavailable)"))
+		b.WriteString("\n\n")
+	}
+	b.WriteString(headerStyle.Render("Config text"))
+	b.WriteString("\n")
+	b.WriteString(m.clientConf)
+	b.WriteString("\n\n")
+	b.WriteString(helpStyle.Render("esc/enter back  ·  CLI: wireguardctl peer qr IFACE PUBKEY [-o out.png]"))
+	if m.width > 10 {
+		return panelStyle.Width(m.width - 2).Render(b.String())
+	}
+	return panelStyle.Render(b.String())
 }

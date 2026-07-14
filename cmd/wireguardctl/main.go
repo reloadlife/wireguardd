@@ -269,6 +269,46 @@ func peerCmd(configPath *string) *cobra.Command {
 			return nil
 		},
 	})
+	var qrOut string
+	qrCmd := &cobra.Command{
+		Use:   "qr [iface] [pubkey]",
+		Short: "Show client config QR code (terminal) and optional PNG",
+		Long: `Renders a scannable QR of the peer client conf in the terminal.
+Use -o file.png to also write a PNG (for phones that scan from disk).
+Requires a stored client_private_key (create with --client-key, or
+issue-client-key --rotate for adopted peers).`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, c, err := loadClient(*configPath)
+			if err != nil {
+				return err
+			}
+			ctx := context.Background()
+			cfg, err := c.PeerClientConfig(ctx, args[0], args[1])
+			if err != nil {
+				return err
+			}
+			ascii, err := tui.RenderQR(cfg)
+			if err != nil {
+				return err
+			}
+			fmt.Println(ascii)
+			fmt.Fprintln(os.Stderr, "# peer", args[0], args[1])
+			if qrOut != "" {
+				png, err := c.PeerQR(ctx, args[0], args[1])
+				if err != nil {
+					return err
+				}
+				if err := os.WriteFile(qrOut, png, 0o600); err != nil {
+					return err
+				}
+				fmt.Fprintln(os.Stderr, "wrote", qrOut)
+			}
+			return nil
+		},
+	}
+	qrCmd.Flags().StringVarP(&qrOut, "out", "o", "", "also write PNG to this path")
+	cmd.AddCommand(qrCmd)
 	var issueRotate bool
 	issueCmd := &cobra.Command{
 		Use:   "issue-client-key [iface] [pubkey]",
