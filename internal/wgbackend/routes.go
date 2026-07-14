@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+// ensure strings is used for hostSizedIPs
+
 // blackholeCIDR installs or removes a blackhole route for a host/CIDR.
 func (b *HostBackend) blackholeCIDR(ctx context.Context, cidr string, add bool) error {
 	ip, ipnet, err := net.ParseCIDR(cidr)
@@ -43,10 +45,10 @@ func (b *HostBackend) blackholeCIDR(ctx context.Context, cidr string, add bool) 
 }
 
 func (b *HostBackend) applySuspendRoutes(ctx context.Context, peer DesiredPeer, suspend bool) error {
-	ips := peer.AssignedIPs
+	// Only blackhole host-sized destinations. Never blackhole 0.0.0.0/0 or large prefixes.
+	ips := hostSizedIPs(peer.AssignedIPs)
 	if len(ips) == 0 {
-		// Fall back to host-sized AllowedIPs
-		ips = append(ips, peer.AllowedIPs...)
+		ips = hostSizedIPs(peer.AllowedIPs)
 	}
 	for _, ip := range ips {
 		if err := b.blackholeCIDR(ctx, ip, suspend); err != nil {
@@ -54,4 +56,23 @@ func (b *HostBackend) applySuspendRoutes(ctx context.Context, peer DesiredPeer, 
 		}
 	}
 	return nil
+}
+
+func hostSizedIPs(cidrs []string) []string {
+	var out []string
+	for _, a := range cidrs {
+		a = strings.TrimSpace(a)
+		if a == "" {
+			continue
+		}
+		if !strings.Contains(a, "/") {
+			out = append(out, a)
+			continue
+		}
+		if strings.HasSuffix(a, "/32") || strings.HasSuffix(a, "/128") {
+			out = append(out, a)
+		}
+		// skip broader prefixes (would blackhole LAN/default routes)
+	}
+	return out
 }

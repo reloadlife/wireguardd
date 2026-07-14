@@ -213,8 +213,8 @@ func peerCmd(configPath *string) *cobra.Command {
 	createCmd.Flags().StringSliceVar(&create.AllowedIPs, "allowed-ip", nil, "allowed IPs")
 	createCmd.Flags().StringVar(&create.Endpoint, "endpoint", "", "endpoint host:port")
 	createCmd.Flags().BoolVar(&create.GeneratePSK, "psk", false, "generate preshared key")
+	createCmd.Flags().BoolVar(&create.GenerateClientKey, "client-key", false, "generate and store client private key (for conf/QR)")
 	_ = createCmd.MarkFlagRequired("iface")
-	_ = createCmd.MarkFlagRequired("pubkey")
 	cmd.AddCommand(createCmd)
 
 	cmd.AddCommand(&cobra.Command{
@@ -248,6 +248,35 @@ func peerCmd(configPath *string) *cobra.Command {
 				return err
 			}
 			return c.DeletePeer(context.Background(), args[0], args[1])
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "client-config [iface] [pubkey]",
+		Short: "Print client wg-quick config",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, c, err := loadClient(*configPath)
+			if err != nil {
+				return err
+			}
+			cfg, err := c.PeerClientConfig(context.Background(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			fmt.Print(cfg)
+			return nil
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "reset-traffic [iface] [pubkey]",
+		Short: "Soft-reset peer traffic counters",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, c, err := loadClient(*configPath)
+			if err != nil {
+				return err
+			}
+			return c.ResetPeerTraffic(context.Background(), args[0], args[1])
 		},
 	})
 	return cmd

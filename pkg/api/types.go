@@ -37,6 +37,7 @@ type InterfaceCreateRequest struct {
 	PreDown          string   `json:"pre_down,omitempty"`
 	PostDown         string   `json:"post_down,omitempty"`
 	DefaultKeepalive int      `json:"default_keepalive"`
+	PublicEndpoint   string   `json:"public_endpoint,omitempty"` // host:port advertised to clients
 	Enabled          *bool    `json:"enabled,omitempty"`
 }
 
@@ -55,6 +56,7 @@ type InterfaceUpdateRequest struct {
 	PreDown          *string  `json:"pre_down,omitempty"`
 	PostDown         *string  `json:"post_down,omitempty"`
 	DefaultKeepalive *int     `json:"default_keepalive,omitempty"`
+	PublicEndpoint   *string  `json:"public_endpoint,omitempty"`
 	Enabled          *bool    `json:"enabled,omitempty"`
 }
 
@@ -76,6 +78,7 @@ type Interface struct {
 	PreDown          string    `json:"pre_down,omitempty"`
 	PostDown         string    `json:"post_down,omitempty"`
 	DefaultKeepalive int       `json:"default_keepalive"`
+	PublicEndpoint   string    `json:"public_endpoint,omitempty"`
 	Enabled          bool      `json:"enabled"`
 	Up               bool      `json:"up"`
 	PeerCount        int       `json:"peer_count"`
@@ -92,6 +95,8 @@ type PeerCreateRequest struct {
 	PublicKey           string   `json:"public_key"`
 	PresharedKey        string   `json:"preshared_key,omitempty"`
 	GeneratePSK         bool     `json:"generate_psk,omitempty"`
+	GenerateClientKey   bool     `json:"generate_client_key,omitempty"` // store client private key for conf/QR
+	ClientPrivateKey    string   `json:"client_private_key,omitempty"`
 	Name                string   `json:"name"`
 	Notes               string   `json:"notes"`
 	AllowedIPs          []string `json:"allowed_ips"`

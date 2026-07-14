@@ -25,7 +25,7 @@ Desired configuration lives in SQLite. Live kernel state is applied every few se
 | Area | Capabilities |
 |------|----------------|
 | Interfaces | Create/delete, up/down, listen port, fwmark, MTU, multi IPv4/IPv6 addresses, DNS, table mode, Pre/Post hooks (opt-in), import/export wg-quick conf |
-| Peers | AllowedIPs, endpoint, PSK, keepalive, assigned IPs, tags/notes, client conf + QR |
+| Peers | AllowedIPs, endpoint, PSK, keepalive, assigned IPs, tags/notes, client conf + QR (requires `generate_client_key` or `client_private_key`, plus interface `public_endpoint`) |
 | Policy | Suspend (strip AllowedIPs + blackhole routes), traffic quotas (auto-suspend), bandwidth limits (tc) |
 | Stats | Per-peer / per-interface totals + rates, handshake/connected tracking |
 | Observability | Prometheus metrics, SNMPv2c agent, audit/enforcement events |
@@ -66,7 +66,9 @@ export WIREGUARDCTL_TOKEN=dev-token
 export WIREGUARDCTL_URL=http://127.0.0.1:51880
 ./bin/wireguardctl iface create --name wg0 --port 51820 --address 10.7.0.1/24
 ./bin/wireguardctl keys gen
-./bin/wireguardctl peer create --iface wg0 --pubkey <PUB> --name alice --allowed-ip 10.7.0.2/32
+./bin/wireguardctl peer create --iface wg0 --name alice --allowed-ip 10.7.0.2/32 --client-key --psk
+# set public_endpoint on the interface for client conf/QR (PATCH /v1/interfaces/wg0)
+./bin/wireguardctl peer client-config wg0 <PUB>
 ./bin/wireguardctl stats
 
 # TUI

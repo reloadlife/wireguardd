@@ -11,6 +11,12 @@ import (
 // ErrNotFound is returned when a row does not exist.
 var ErrNotFound = errors.New("not found")
 
+const ifaceSelect = `
+SELECT id, name, private_key, public_key, listen_port, fwmark, mtu, table_mode, table_id,
+       dns, addresses, pre_up, post_up, pre_down, post_down, default_keepalive, public_endpoint,
+       enabled, created_at, updated_at
+FROM interfaces`
+
 // CreateInterface inserts a new interface.
 func (s *Store) CreateInterface(ctx context.Context, iface *Interface) error {
 	now := nowRFC3339()
@@ -34,13 +40,13 @@ func (s *Store) CreateInterface(ctx context.Context, iface *Interface) error {
 	res, err := s.db.ExecContext(ctx, `
 INSERT INTO interfaces (
   name, private_key, public_key, listen_port, fwmark, mtu, table_mode, table_id,
-  dns, addresses, pre_up, post_up, pre_down, post_down, default_keepalive, enabled,
+  dns, addresses, pre_up, post_up, pre_down, post_down, default_keepalive, public_endpoint, enabled,
   created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		iface.Name, iface.PrivateKey, iface.PublicKey, iface.ListenPort, iface.FwMark, iface.MTU,
 		iface.TableMode, tableID, encodeJSONList(iface.DNS), encodeJSONList(iface.Addresses),
-		iface.PreUp, iface.PostUp, iface.PreDown, iface.PostDown, iface.DefaultKeepalive, enabled,
-		now, now,
+		iface.PreUp, iface.PostUp, iface.PreDown, iface.PostDown, iface.DefaultKeepalive,
+		iface.PublicEndpoint, enabled, now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("insert interface: %w", err)
@@ -57,31 +63,19 @@ INSERT INTO interfaces (
 
 // GetInterfaceByName loads an interface by name.
 func (s *Store) GetInterfaceByName(ctx context.Context, name string) (*Interface, error) {
-	row := s.db.QueryRowContext(ctx, `
-SELECT id, name, private_key, public_key, listen_port, fwmark, mtu, table_mode, table_id,
-       dns, addresses, pre_up, post_up, pre_down, post_down, default_keepalive, enabled,
-       created_at, updated_at
-FROM interfaces WHERE name = ?`, name)
+	row := s.db.QueryRowContext(ctx, ifaceSelect+` WHERE name = ?`, name)
 	return scanInterface(row)
 }
 
 // GetInterfaceByID loads an interface by id.
 func (s *Store) GetInterfaceByID(ctx context.Context, id int64) (*Interface, error) {
-	row := s.db.QueryRowContext(ctx, `
-SELECT id, name, private_key, public_key, listen_port, fwmark, mtu, table_mode, table_id,
-       dns, addresses, pre_up, post_up, pre_down, post_down, default_keepalive, enabled,
-       created_at, updated_at
-FROM interfaces WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, ifaceSelect+` WHERE id = ?`, id)
 	return scanInterface(row)
 }
 
 // ListInterfaces returns all interfaces ordered by name.
 func (s *Store) ListInterfaces(ctx context.Context) ([]Interface, error) {
-	rows, err := s.db.QueryContext(ctx, `
-SELECT id, name, private_key, public_key, listen_port, fwmark, mtu, table_mode, table_id,
-       dns, addresses, pre_up, post_up, pre_down, post_down, default_keepalive, enabled,
-       created_at, updated_at
-FROM interfaces ORDER BY name`)
+	rows, err := s.db.QueryContext(ctx, ifaceSelect+` ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -112,12 +106,12 @@ func (s *Store) UpdateInterface(ctx context.Context, iface *Interface) error {
 UPDATE interfaces SET
   private_key=?, public_key=?, listen_port=?, fwmark=?, mtu=?, table_mode=?, table_id=?,
   dns=?, addresses=?, pre_up=?, post_up=?, pre_down=?, post_down=?, default_keepalive=?,
-  enabled=?, updated_at=?
+  public_endpoint=?, enabled=?, updated_at=?
 WHERE id=?`,
 		iface.PrivateKey, iface.PublicKey, iface.ListenPort, iface.FwMark, iface.MTU,
 		iface.TableMode, tableID, encodeJSONList(iface.DNS), encodeJSONList(iface.Addresses),
 		iface.PreUp, iface.PostUp, iface.PreDown, iface.PostDown, iface.DefaultKeepalive,
-		enabled, now, iface.ID,
+		iface.PublicEndpoint, enabled, now, iface.ID,
 	)
 	if err != nil {
 		return err
@@ -161,7 +155,7 @@ func scanInterface(row scannable) (*Interface, error) {
 		&iface.ID, &iface.Name, &iface.PrivateKey, &iface.PublicKey, &iface.ListenPort,
 		&iface.FwMark, &iface.MTU, &iface.TableMode, &tableID, &dns, &addrs,
 		&iface.PreUp, &iface.PostUp, &iface.PreDown, &iface.PostDown, &iface.DefaultKeepalive,
-		&enabled, &created, &updated,
+		&iface.PublicEndpoint, &enabled, &created, &updated,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound

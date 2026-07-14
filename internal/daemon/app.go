@@ -48,7 +48,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	var backend wgbackend.Backend
 	if a.cfg.WireGuard.UseMockBackend {
-		a.log.Warn("using mock wireguard backend")
+		a.log.Warn("using mock wireguard backend (explicit use_mock_backend)")
 		backend = wgbackend.NewMock()
 	} else {
 		hb, err := wgbackend.NewHostBackend(wgbackend.HostOptions{
@@ -57,16 +57,14 @@ func (a *App) Run(ctx context.Context) error {
 			BandwidthBackend: a.cfg.WireGuard.BandwidthBackend,
 		})
 		if err != nil {
-			a.log.Warn("wgctrl unavailable, falling back to mock backend", "err", err)
-			backend = wgbackend.NewMock()
-		} else {
-			backend = hb
+			return fmt.Errorf("open wireguard backend (set wireguard.use_mock_backend: true for airgap/dev): %w", err)
 		}
+		backend = hb
 	}
 	defer func() { _ = backend.Close() }()
 
 	cache := stats.NewCache()
-	_ = metrics.New(cache, nil)
+	collector := metrics.New(cache, nil)
 
 	rec := reconcile.New(store, backend, cache, reconcile.Config{
 		Persistence:           a.cfg.WireGuard.Persistence,
@@ -75,6 +73,7 @@ func (a *App) Run(ctx context.Context) error {
 		SampleInterval:        a.cfg.SampleInterval(),
 		AllowHooks:            a.cfg.WireGuard.AllowHooks,
 	}, a.log)
+	rec.SetMetrics(collector)
 
 	srvAPI := api.NewServer(store, backend, cache, rec, a.cfg, a.log)
 	handler := srvAPI.Router()

@@ -25,13 +25,13 @@ func (s *Store) CreatePeer(ctx context.Context, p *Peer) error {
 	}
 	res, err := s.db.ExecContext(ctx, `
 INSERT INTO peers (
-  interface_id, public_key, preshared_key, name, notes, allowed_ips, assigned_ips,
+  interface_id, public_key, preshared_key, client_private_key, name, notes, allowed_ips, assigned_ips,
   endpoint, persistent_keepalive, suspended, traffic_limit_bytes, bandwidth_rx_bps,
   bandwidth_tx_bps, rx_bytes_offset, tx_bytes_offset, first_handshake_at, last_handshake_at,
   connected_since, last_endpoint, last_rx_bytes, last_tx_bytes, last_rx_bps, last_tx_bps,
   tags, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.InterfaceID, p.PublicKey, p.PresharedKey, p.Name, p.Notes,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.InterfaceID, p.PublicKey, p.PresharedKey, p.ClientPrivateKey, p.Name, p.Notes,
 		encodeJSONList(p.AllowedIPs), encodeJSONList(p.AssignedIPs),
 		p.Endpoint, p.PersistentKeepalive, suspended, p.TrafficLimitBytes, p.BandwidthRxBps,
 		p.BandwidthTxBps, p.RxBytesOffset, p.TxBytesOffset, p.FirstHandshakeAt, p.LastHandshakeAt,
@@ -96,13 +96,13 @@ func (s *Store) UpdatePeer(ctx context.Context, p *Peer) error {
 	}
 	res, err := s.db.ExecContext(ctx, `
 UPDATE peers SET
-  preshared_key=?, name=?, notes=?, allowed_ips=?, assigned_ips=?, endpoint=?,
+  preshared_key=?, client_private_key=?, name=?, notes=?, allowed_ips=?, assigned_ips=?, endpoint=?,
   persistent_keepalive=?, suspended=?, traffic_limit_bytes=?, bandwidth_rx_bps=?,
   bandwidth_tx_bps=?, rx_bytes_offset=?, tx_bytes_offset=?, first_handshake_at=?,
   last_handshake_at=?, connected_since=?, last_endpoint=?, last_rx_bytes=?, last_tx_bytes=?,
   last_rx_bps=?, last_tx_bps=?, tags=?, updated_at=?
 WHERE id=?`,
-		p.PresharedKey, p.Name, p.Notes, encodeJSONList(p.AllowedIPs), encodeJSONList(p.AssignedIPs),
+		p.PresharedKey, p.ClientPrivateKey, p.Name, p.Notes, encodeJSONList(p.AllowedIPs), encodeJSONList(p.AssignedIPs),
 		p.Endpoint, p.PersistentKeepalive, suspended, p.TrafficLimitBytes, p.BandwidthRxBps,
 		p.BandwidthTxBps, p.RxBytesOffset, p.TxBytesOffset, p.FirstHandshakeAt, p.LastHandshakeAt,
 		p.ConnectedSince, p.LastEndpoint, p.LastRxBytes, p.LastTxBytes, p.LastRxBps, p.LastTxBps,
@@ -183,7 +183,7 @@ UPDATE peers SET rx_bytes_offset=?, tx_bytes_offset=?, updated_at=? WHERE id=?`,
 }
 
 const peerSelect = `
-SELECT p.id, p.interface_id, i.name, p.public_key, p.preshared_key, p.name, p.notes,
+SELECT p.id, p.interface_id, i.name, p.public_key, p.preshared_key, p.client_private_key, p.name, p.notes,
        p.allowed_ips, p.assigned_ips, p.endpoint, p.persistent_keepalive, p.suspended,
        p.traffic_limit_bytes, p.bandwidth_rx_bps, p.bandwidth_tx_bps, p.rx_bytes_offset,
        p.tx_bytes_offset, p.first_handshake_at, p.last_handshake_at, p.connected_since,
@@ -202,7 +202,8 @@ func scanPeer(row scannable) (*Peer, error) {
 		updated   string
 	)
 	err := row.Scan(
-		&p.ID, &p.InterfaceID, &p.InterfaceName, &p.PublicKey, &p.PresharedKey, &p.Name, &p.Notes,
+		&p.ID, &p.InterfaceID, &p.InterfaceName, &p.PublicKey, &p.PresharedKey, &p.ClientPrivateKey,
+		&p.Name, &p.Notes,
 		&allowed, &assigned, &p.Endpoint, &p.PersistentKeepalive, &suspended,
 		&p.TrafficLimitBytes, &p.BandwidthRxBps, &p.BandwidthTxBps, &p.RxBytesOffset,
 		&p.TxBytesOffset, &p.FirstHandshakeAt, &p.LastHandshakeAt, &p.ConnectedSince,

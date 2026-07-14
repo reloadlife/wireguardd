@@ -20,6 +20,7 @@ type Interface struct {
 	PreDown          string    `json:"pre_down,omitempty"`
 	PostDown         string    `json:"post_down,omitempty"`
 	DefaultKeepalive int       `json:"default_keepalive"`
+	PublicEndpoint   string    `json:"public_endpoint,omitempty"`
 	Enabled          bool      `json:"enabled"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
@@ -32,6 +33,7 @@ type Peer struct {
 	InterfaceName       string    `json:"interface_name,omitempty"`
 	PublicKey           string    `json:"public_key"`
 	PresharedKey        string    `json:"preshared_key,omitempty"`
+	ClientPrivateKey    string    `json:"client_private_key,omitempty"`
 	Name                string    `json:"name"`
 	Notes               string    `json:"notes"`
 	AllowedIPs          []string  `json:"allowed_ips"`

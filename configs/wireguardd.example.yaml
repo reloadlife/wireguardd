@@ -22,8 +22,8 @@ wireguard:
   sample_interval: 5s
   reconcile_interval: 5s
   allow_hooks: false
-  bandwidth_backend: "tc" # tc | nft | none
-  # use_mock_backend: true  # for dev without kernel module
+  bandwidth_backend: "tc" # tc | none (nft not yet implemented)
+  # use_mock_backend: true  # for dev without kernel module (required if wgctrl unavailable)
 
 log:
   level: info

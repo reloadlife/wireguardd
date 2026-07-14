@@ -79,9 +79,9 @@ func LoadDaemon(path string) (*DaemonConfig, error) {
 func setDaemonDefaults(v *viper.Viper) {
 	v.SetDefault("listen.http", "127.0.0.1:51880")
 	v.SetDefault("listen.unix", "")
-	v.SetDefault("listen.metrics", "0.0.0.0:9091")
-	v.SetDefault("snmp.enabled", true)
-	v.SetDefault("snmp.listen", "0.0.0.0:1161")
+	v.SetDefault("listen.metrics", "127.0.0.1:9091")
+	v.SetDefault("snmp.enabled", false)
+	v.SetDefault("snmp.listen", "127.0.0.1:1161")
 	v.SetDefault("snmp.community", "public")
 	v.SetDefault("snmp.enterprise_oid", "1.3.6.1.4.1.66666.1")
 	v.SetDefault("db.path", "wireguardd.db")

@@ -24,6 +24,11 @@ type Config struct {
 	AllowHooks            bool
 }
 
+// MetricsObserver records reconcile timing (optional).
+type MetricsObserver interface {
+	ObserveReconcile(d time.Duration, err error)
+}
+
 // Reconciler applies desired state and samples stats.
 type Reconciler struct {
 	store   *db.Store
@@ -31,10 +36,12 @@ type Reconciler struct {
 	cache   *stats.Cache
 	cfg     Config
 	log     *slog.Logger
+	metrics MetricsObserver
 
 	mu         sync.Mutex
 	prevSample map[string]stats.Sample // peer id key iface/pub
 	lastErr    error
+	hookState  map[string]bool // iface name -> last applied "enabled"
 }
 
 // New creates a reconciler.
@@ -52,7 +59,13 @@ func New(store *db.Store, backend wgbackend.Backend, cache *stats.Cache, cfg Con
 		cfg:        cfg,
 		log:        log,
 		prevSample: make(map[string]stats.Sample),
+		hookState:  make(map[string]bool),
 	}
+}
+
+// SetMetrics wires optional reconcile metrics.
+func (r *Reconciler) SetMetrics(m MetricsObserver) {
+	r.metrics = m
 }
 
 // LastError returns the last reconcile error.
@@ -66,8 +79,12 @@ func (r *Reconciler) LastError() error {
 func (r *Reconciler) RunOnce(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	start := time.Now()
 	err := r.run(ctx)
 	r.lastErr = err
+	if r.metrics != nil {
+		r.metrics.ObserveReconcile(time.Since(start), err)
+	}
 	return err
 }
 
@@ -135,8 +152,15 @@ func (r *Reconciler) run(ctx context.Context) error {
 			Peers:      desiredPeers,
 		}
 
-		if r.cfg.AllowHooks && iface.PreUp != "" {
+		wasEnabled, seen := r.hookState[iface.Name]
+		goingUp := iface.Enabled && (!seen || !wasEnabled)
+		goingDown := !iface.Enabled && seen && wasEnabled
+
+		if r.cfg.AllowHooks && goingUp && iface.PreUp != "" {
 			_ = r.backend.RunHook(ctx, iface.PreUp)
+		}
+		if r.cfg.AllowHooks && goingDown && iface.PreDown != "" {
+			_ = r.backend.RunHook(ctx, iface.PreDown)
 		}
 		if err := r.backend.EnsureInterface(ctx, di); err != nil {
 			r.log.Error("ensure interface", "iface", iface.Name, "err", err)
@@ -152,9 +176,13 @@ func (r *Reconciler) run(ctx context.Context) error {
 		if err := r.backend.SetUp(ctx, iface.Name, iface.Enabled); err != nil {
 			r.log.Error("set up", "iface", iface.Name, "err", err)
 		}
-		if r.cfg.AllowHooks && iface.PostUp != "" && iface.Enabled {
+		if r.cfg.AllowHooks && goingUp && iface.PostUp != "" {
 			_ = r.backend.RunHook(ctx, iface.PostUp)
 		}
+		if r.cfg.AllowHooks && goingDown && iface.PostDown != "" {
+			_ = r.backend.RunHook(ctx, iface.PostDown)
+		}
+		r.hookState[iface.Name] = iface.Enabled
 
 		if r.cfg.Persistence == "hybrid" || r.cfg.Persistence == "wg-quick" {
 			if err := r.exportConf(ctx, &iface, peers); err != nil {
@@ -168,10 +196,18 @@ func (r *Reconciler) run(ctx context.Context) error {
 		}
 	}
 
-	// Remove live devices not in desired set (only those we manage — names in DB history)
-	// We only delete if it was previously managed: skip orphan kernel devices.
+	// Drop metrics cache entries for deleted interfaces/peers.
+	keepIfaces := make(map[string]struct{}, len(desiredNames))
+	for n := range desiredNames {
+		keepIfaces[n] = struct{}{}
+	}
+	keepPeers := make(map[string]struct{})
+	allPeers, _ := r.store.ListAllPeers(ctx)
+	for _, p := range allPeers {
+		keepPeers[p.InterfaceName+"/"+p.PublicKey] = struct{}{}
+	}
+	r.cache.Retain(keepIfaces, keepPeers)
 	_ = liveNames
-	_ = desiredNames
 
 	// Purge old samples occasionally
 	_, _ = r.store.PurgeSamples(ctx, 24*time.Hour)
@@ -198,11 +234,15 @@ func (r *Reconciler) exportConf(ctx context.Context, iface *db.Interface, peers 
 		cfg.Interface.Table = fmt.Sprintf("%d", *iface.TableID)
 	}
 	for _, p := range peers {
-		// Always export desired AllowedIPs (including suspended peers) for boot persistence.
+		// Suspended peers export empty AllowedIPs so wg-quick boot stays suspended.
+		allowed := p.AllowedIPs
+		if p.Suspended {
+			allowed = nil
+		}
 		cfg.Peers = append(cfg.Peers, confparse.PeerSection{
 			PublicKey:           p.PublicKey,
 			PresharedKey:        p.PresharedKey,
-			AllowedIPs:          p.AllowedIPs,
+			AllowedIPs:          allowed,
 			Endpoint:            p.Endpoint,
 			PersistentKeepalive: p.PersistentKeepalive,
 		})

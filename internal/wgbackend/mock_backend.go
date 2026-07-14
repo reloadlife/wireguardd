@@ -117,18 +117,32 @@ func (m *MockBackend) ApplyPeers(ctx context.Context, iface string, peers []Desi
 	if !ok {
 		return fmt.Errorf("device %s not found", iface)
 	}
+	// Preserve counters/handshake across reapply (mirrors host kernel behaviour).
+	prev := make(map[string]Peer, len(d.Peers))
+	for _, p := range d.Peers {
+		prev[p.PublicKey] = p
+	}
 	out := make([]Peer, 0, len(peers))
 	for _, p := range peers {
 		allowed := p.AllowedIPs
 		if p.Suspended {
 			allowed = nil
 		}
-		out = append(out, Peer{
+		np := Peer{
 			PublicKey:    p.PublicKey,
 			PresharedKey: p.PresharedKey,
 			Endpoint:     p.Endpoint,
 			AllowedIPs:   append([]string(nil), allowed...),
-		})
+		}
+		if old, ok := prev[p.PublicKey]; ok {
+			np.ReceiveBytes = old.ReceiveBytes
+			np.TransmitBytes = old.TransmitBytes
+			np.LastHandshakeTime = old.LastHandshakeTime
+			if np.Endpoint == "" {
+				np.Endpoint = old.Endpoint
+			}
+		}
+		out = append(out, np)
 	}
 	d.Peers = out
 	return nil

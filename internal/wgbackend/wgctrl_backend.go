@@ -162,9 +162,12 @@ func (b *HostBackend) SetUp(ctx context.Context, name string, up bool) error {
 }
 
 // ApplyPeers implements Backend.
+// Diff-applies peers without ReplacePeers so kernel counters/handshakes are preserved.
 func (b *HostBackend) ApplyPeers(ctx context.Context, iface string, peers []DesiredPeer) error {
-	cfgs := make([]wgtypes.PeerConfig, 0, len(peers))
+	desired := make(map[string]DesiredPeer, len(peers))
+	cfgs := make([]wgtypes.PeerConfig, 0, len(peers)+4)
 	for _, p := range peers {
+		desired[p.PublicKey] = p
 		pub, err := wgtypes.ParseKey(p.PublicKey)
 		if err != nil {
 			return fmt.Errorf("peer public key: %w", err)
@@ -192,33 +195,52 @@ func (b *HostBackend) ApplyPeers(ctx context.Context, iface string, peers []Desi
 
 		if !p.Suspended {
 			for _, a := range p.AllowedIPs {
-				_, ipnet, err := net.ParseCIDR(a)
+				ipnet, err := parseIPNet(a)
 				if err != nil {
-					// bare IP
-					ip := net.ParseIP(a)
-					if ip == nil {
-						return fmt.Errorf("allowed ip %s: %w", a, err)
-					}
-					if ip.To4() != nil {
-						ipnet = &net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}
-					} else {
-						ipnet = &net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}
-					}
+					return fmt.Errorf("allowed ip %s: %w", a, err)
 				}
 				pc.AllowedIPs = append(pc.AllowedIPs, *ipnet)
 			}
 		}
 		cfgs = append(cfgs, pc)
 	}
-	// Replace all peers to drop removed ones
+
+	// Remove peers no longer desired without wiping remaining peer state.
+	if dev, err := b.client.Device(iface); err == nil {
+		for _, lp := range dev.Peers {
+			key := lp.PublicKey.String()
+			if _, ok := desired[key]; !ok {
+				cfgs = append(cfgs, wgtypes.PeerConfig{
+					PublicKey: lp.PublicKey,
+					Remove:    true,
+				})
+			}
+		}
+	}
+
 	cfg := wgtypes.Config{
-		ReplacePeers: true,
+		ReplacePeers: false,
 		Peers:        cfgs,
 	}
 	if err := b.client.ConfigureDevice(iface, cfg); err != nil {
 		return fmt.Errorf("apply peers: %w", err)
 	}
 	return nil
+}
+
+func parseIPNet(a string) (*net.IPNet, error) {
+	_, ipnet, err := net.ParseCIDR(a)
+	if err == nil {
+		return ipnet, nil
+	}
+	ip := net.ParseIP(a)
+	if ip == nil {
+		return nil, err
+	}
+	if ip.To4() != nil {
+		return &net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}, nil
+	}
+	return &net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}, nil
 }
 
 // ApplySuspendRoutes implements Backend.

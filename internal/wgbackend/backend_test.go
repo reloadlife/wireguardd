@@ -32,6 +32,7 @@ func TestMockBackendLifecycle(t *testing.T) {
 	require.Len(t, d.Peers, 1)
 	require.Equal(t, []string{"10.0.0.2/32"}, d.Peers[0].AllowedIPs)
 
+	m.SetPeerTraffic("wg0", "peer1", 999, 888)
 	err = m.ApplyPeers(ctx, "wg0", []DesiredPeer{{
 		PublicKey:  "peer1",
 		AllowedIPs: []string{"10.0.0.2/32"},
@@ -41,6 +42,8 @@ func TestMockBackendLifecycle(t *testing.T) {
 	d, err = m.Device(ctx, "wg0")
 	require.NoError(t, err)
 	require.Empty(t, d.Peers[0].AllowedIPs)
+	require.Equal(t, int64(999), d.Peers[0].ReceiveBytes)
+	require.Equal(t, int64(888), d.Peers[0].TransmitBytes)
 
 	path := filepath.Join(t.TempDir(), "wg0.conf")
 	require.NoError(t, m.ExportConf(ctx, path, "test"))

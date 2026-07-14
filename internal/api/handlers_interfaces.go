@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"time"
@@ -98,6 +99,7 @@ func (s *Server) handleCreateInterface(w http.ResponseWriter, r *http.Request) {
 		PreDown:          req.PreDown,
 		PostDown:         req.PostDown,
 		DefaultKeepalive: req.DefaultKeepalive,
+		PublicEndpoint:   req.PublicEndpoint,
 		Enabled:          enabled,
 	}
 	if err := s.store.CreateInterface(r.Context(), iface); err != nil {
@@ -172,6 +174,9 @@ func (s *Server) handleUpdateInterface(w http.ResponseWriter, r *http.Request) {
 	if req.DefaultKeepalive != nil {
 		iface.DefaultKeepalive = *req.DefaultKeepalive
 	}
+	if req.PublicEndpoint != nil {
+		iface.PublicEndpoint = *req.PublicEndpoint
+	}
 	if req.Enabled != nil {
 		iface.Enabled = *req.Enabled
 	}
@@ -209,8 +214,14 @@ func (s *Server) handleInterfaceUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	iface.Enabled = true
-	_ = s.store.UpdateInterface(r.Context(), iface)
-	_ = s.ForceReconcile(r.Context())
+	if err := s.store.UpdateInterface(r.Context(), iface); err != nil {
+		writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
+		return
+	}
+	_ = s.backend.SetUp(r.Context(), name, true)
+	if err := s.ForceReconcile(r.Context()); err != nil {
+		s.log.Error("reconcile after up", "err", err)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "up"})
 }
 
@@ -222,9 +233,14 @@ func (s *Server) handleInterfaceDown(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	iface.Enabled = false
-	_ = s.store.UpdateInterface(r.Context(), iface)
+	if err := s.store.UpdateInterface(r.Context(), iface); err != nil {
+		writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
+		return
+	}
 	_ = s.backend.SetUp(r.Context(), name, false)
-	_ = s.ForceReconcile(r.Context())
+	if err := s.ForceReconcile(r.Context()); err != nil {
+		s.log.Error("reconcile after down", "err", err)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "down"})
 }
 
@@ -329,7 +345,10 @@ func (s *Server) handleInterfaceImport(w http.ResponseWriter, r *http.Request) {
 			Endpoint:            p.Endpoint,
 			PersistentKeepalive: p.PersistentKeepalive,
 		}
-		_ = s.store.CreatePeer(r.Context(), peer)
+		if err := s.store.CreatePeer(r.Context(), peer); err != nil {
+			writeError(w, http.StatusInternalServerError, "peer_import_failed", err.Error())
+			return
+		}
 	}
 	_ = s.ForceReconcile(r.Context())
 	// reload
@@ -370,6 +389,10 @@ func parseScan(s string, n *int) (int, error) {
 }
 
 func renderIfaceConf(iface *db.Interface, peers []db.Peer) string {
+	table := iface.TableMode
+	if iface.TableMode == "number" && iface.TableID != nil {
+		table = fmt.Sprintf("%d", *iface.TableID)
+	}
 	cfg := &confparse.Config{
 		Interface: confparse.InterfaceSection{
 			PrivateKey: iface.PrivateKey,
@@ -377,7 +400,7 @@ func renderIfaceConf(iface *db.Interface, peers []db.Peer) string {
 			ListenPort: iface.ListenPort,
 			DNS:        iface.DNS,
 			MTU:        iface.MTU,
-			Table:      iface.TableMode,
+			Table:      table,
 			FwMark:     iface.FwMark,
 			PreUp:      iface.PreUp,
 			PostUp:     iface.PostUp,
@@ -386,10 +409,14 @@ func renderIfaceConf(iface *db.Interface, peers []db.Peer) string {
 		},
 	}
 	for _, p := range peers {
+		allowed := p.AllowedIPs
+		if p.Suspended {
+			allowed = nil
+		}
 		cfg.Peers = append(cfg.Peers, confparse.PeerSection{
 			PublicKey:           p.PublicKey,
 			PresharedKey:        p.PresharedKey,
-			AllowedIPs:          p.AllowedIPs,
+			AllowedIPs:          allowed,
 			Endpoint:            p.Endpoint,
 			PersistentKeepalive: p.PersistentKeepalive,
 		})
@@ -417,7 +444,8 @@ func (s *Server) toAPIInterface(ctx context.Context, iface *db.Interface, reveal
 		ListenPort: iface.ListenPort, FwMark: iface.FwMark, MTU: iface.MTU,
 		TableMode: iface.TableMode, TableID: iface.TableID, DNS: iface.DNS,
 		Addresses: iface.Addresses, DefaultKeepalive: iface.DefaultKeepalive,
-		Enabled: iface.Enabled, Up: up, PeerCount: len(peers),
+		PublicEndpoint: iface.PublicEndpoint,
+		Enabled:        iface.Enabled, Up: up, PeerCount: len(peers),
 		RxBytes: rx, TxBytes: tx, RxBps: rxBps, TxBps: txBps,
 		CreatedAt: iface.CreatedAt, UpdatedAt: iface.UpdatedAt,
 	}

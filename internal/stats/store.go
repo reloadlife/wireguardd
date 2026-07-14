@@ -95,3 +95,19 @@ func (c *Cache) Clear() {
 	c.ifaces = make(map[string]*IfaceStats)
 	c.peers = make(map[string]*PeerStats)
 }
+
+// Retain keeps only the given interface and peer keys (iface/pubkey).
+func (c *Cache) Retain(ifaces map[string]struct{}, peerKeys map[string]struct{}) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k := range c.ifaces {
+		if _, ok := ifaces[k]; !ok {
+			delete(c.ifaces, k)
+		}
+	}
+	for k := range c.peers {
+		if _, ok := peerKeys[k]; !ok {
+			delete(c.peers, k)
+		}
+	}
+}

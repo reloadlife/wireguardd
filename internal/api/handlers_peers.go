@@ -66,14 +66,16 @@ func (s *Server) handleCreatePeer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
 		return
 	}
-	if req.PublicKey == "" {
-		writeError(w, http.StatusBadRequest, "validation", "public_key is required")
-		return
-	}
-	pub, err := wgutil.NormalizeKey(req.PublicKey)
-	if err != nil {
-		// allow non-strict for tests using mock keys? require valid wireguard keys
-		writeError(w, http.StatusBadRequest, "invalid_key", err.Error())
+	pub := ""
+	if req.PublicKey != "" {
+		var nerr error
+		pub, nerr = wgutil.NormalizeKey(req.PublicKey)
+		if nerr != nil {
+			writeError(w, http.StatusBadRequest, "invalid_key", nerr.Error())
+			return
+		}
+	} else if !req.GenerateClientKey && req.ClientPrivateKey == "" {
+		writeError(w, http.StatusBadRequest, "validation", "public_key is required (or generate_client_key)")
 		return
 	}
 	psk := req.PresharedKey
@@ -84,6 +86,39 @@ func (s *Server) handleCreatePeer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	clientPriv := req.ClientPrivateKey
+	// generate_client_key creates a full keypair and uses it as the peer identity.
+	// Cannot invent a private key for an already-known public key.
+	if req.GenerateClientKey && clientPriv == "" {
+		if req.PublicKey != "" {
+			writeError(w, http.StatusBadRequest, "validation", "generate_client_key cannot be used with public_key; omit public_key or pass client_private_key")
+			return
+		}
+		kp, err := crypto.GenerateKeyPair()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "keygen_failed", err.Error())
+			return
+		}
+		clientPriv = kp.PrivateKey
+		pub = kp.PublicKey
+	}
+	if clientPriv != "" {
+		derived, err := crypto.PublicFromPrivate(clientPriv)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_key", err.Error())
+			return
+		}
+		if pub == "" {
+			pub = derived
+		} else if pub != derived {
+			writeError(w, http.StatusBadRequest, "validation", "client_private_key does not match public_key")
+			return
+		}
+	}
+	if pub == "" {
+		writeError(w, http.StatusBadRequest, "validation", "public_key is required (or generate_client_key)")
+		return
+	}
 	ka := req.PersistentKeepalive
 	if ka == 0 && iface.DefaultKeepalive > 0 {
 		ka = iface.DefaultKeepalive
@@ -92,6 +127,7 @@ func (s *Server) handleCreatePeer(w http.ResponseWriter, r *http.Request) {
 		InterfaceID:         iface.ID,
 		PublicKey:           pub,
 		PresharedKey:        psk,
+		ClientPrivateKey:    clientPriv,
 		Name:                req.Name,
 		Notes:               req.Notes,
 		AllowedIPs:          req.AllowedIPs,
@@ -252,7 +288,13 @@ func (s *Server) handlePeerClientConfig(w http.ResponseWriter, r *http.Request) 
 	}
 	cfg, err := s.buildClientConfig(r, name, pubkey)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not_found", err.Error())
+		status := http.StatusBadRequest
+		code := "client_config"
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+			code = "not_found"
+		}
+		writeError(w, status, code, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, pkgapi.ClientConfigResponse{Config: cfg})
@@ -266,7 +308,13 @@ func (s *Server) handlePeerQR(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg, err := s.buildClientConfig(r, name, pubkey)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not_found", err.Error())
+		status := http.StatusBadRequest
+		code := "client_config"
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+			code = "not_found"
+		}
+		writeError(w, status, code, err.Error())
 		return
 	}
 	png, err := qrcode.Encode(cfg, qrcode.Medium, 256)
@@ -288,27 +336,42 @@ func (s *Server) buildClientConfig(r *http.Request, ifaceName, pubkey string) (s
 	if err != nil {
 		return "", errors.New("peer not found")
 	}
-	// Client needs its own private key — we only have public key on server.
-	// Emit a template with placeholders for client private key and server endpoint.
+	if peer.ClientPrivateKey == "" {
+		return "", errors.New("peer has no client_private_key; recreate with generate_client_key=true")
+	}
 	addrs := peer.AssignedIPs
 	if len(addrs) == 0 {
-		// derive from allowed if /32
 		for _, a := range peer.AllowedIPs {
 			if strings.HasSuffix(a, "/32") || strings.HasSuffix(a, "/128") {
 				addrs = append(addrs, a)
 			}
 		}
 	}
-	serverEndpoint := peer.Endpoint
-	if serverEndpoint == "" {
-		serverEndpoint = "SERVER_PUBLIC_IP:PORT"
+	// Address lines need CIDR; bare IPs get /32 or /128.
+	normAddrs := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		if strings.Contains(a, "/") {
+			normAddrs = append(normAddrs, a)
+			continue
+		}
+		if strings.Contains(a, ":") {
+			normAddrs = append(normAddrs, a+"/128")
+		} else {
+			normAddrs = append(normAddrs, a+"/32")
+		}
 	}
-	// Note: For client config, AllowedIPs is typically 0.0.0.0/0 or LAN routes; use peer notes or default.
+	serverEndpoint := iface.PublicEndpoint
+	if serverEndpoint == "" && iface.ListenPort > 0 {
+		serverEndpoint = fmt.Sprintf("SERVER_PUBLIC_IP:%d", iface.ListenPort)
+	}
+	if serverEndpoint == "" {
+		return "", errors.New("interface public_endpoint not set (required for client config)")
+	}
 	clientAllowed := []string{"0.0.0.0/0", "::/0"}
 	cfg := &confparse.Config{
 		Interface: confparse.InterfaceSection{
-			PrivateKey: "CLIENT_PRIVATE_KEY",
-			Address:    addrs,
+			PrivateKey: peer.ClientPrivateKey,
+			Address:    normAddrs,
 			DNS:        iface.DNS,
 			MTU:        iface.MTU,
 		},

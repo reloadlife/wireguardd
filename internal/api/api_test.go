@@ -85,9 +85,10 @@ func TestInterfacePeerLifecycle(t *testing.T) {
 
 	// create iface
 	rr := doJSON(t, h, http.MethodPost, "/v1/interfaces", token, pkgapi.InterfaceCreateRequest{
-		Name:       "wg0",
-		ListenPort: 51820,
-		Addresses:  []string{"10.8.0.1/24"},
+		Name:           "wg0",
+		ListenPort:     51820,
+		Addresses:      []string{"10.8.0.1/24"},
+		PublicEndpoint: "vpn.example.com:51820",
 	}, http.StatusCreated)
 	var iface pkgapi.Interface
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &iface))
@@ -106,24 +107,25 @@ func TestInterfacePeerLifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &keys))
 	require.NotEmpty(t, keys.PublicKey)
 
-	// peer
+	// peer with full client keypair (for conf/QR)
 	rr = doJSON(t, h, http.MethodPost, "/v1/interfaces/wg0/peers", token, pkgapi.PeerCreateRequest{
-		PublicKey:   keys.PublicKey,
-		Name:        "alice",
-		AllowedIPs:  []string{"10.8.0.2/32"},
-		AssignedIPs: []string{"10.8.0.2"},
-		GeneratePSK: true,
+		Name:              "alice",
+		AllowedIPs:        []string{"10.8.0.2/32"},
+		AssignedIPs:       []string{"10.8.0.2"},
+		GeneratePSK:       true,
+		GenerateClientKey: true,
 	}, http.StatusCreated)
 	var peer pkgapi.Peer
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &peer))
 	require.Equal(t, "alice", peer.Name)
 	require.NotEmpty(t, peer.PresharedKey)
+	require.NotEmpty(t, peer.PublicKey)
 
-	pkPath := wgutil.PathEscapeKey(keys.PublicKey)
+	pkPath := wgutil.PathEscapeKey(peer.PublicKey)
 
 	// suspend
 	doJSON(t, h, http.MethodPost, "/v1/interfaces/wg0/peers/"+pkPath+"/suspend", token, nil, http.StatusOK)
-	p, err := store.GetPeer(context.Background(), "wg0", keys.PublicKey)
+	p, err := store.GetPeer(context.Background(), "wg0", peer.PublicKey)
 	require.NoError(t, err)
 	require.True(t, p.Suspended)
 
