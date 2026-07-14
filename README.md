@@ -93,7 +93,11 @@ Environment overrides use prefix `WIREGUARDD_` / `WIREGUARDCTL_` (e.g. `WIREGUAR
 
 - **Suspend**: peer stays in DB; live AllowedIPs cleared; blackhole routes for assigned IPs.
 - **Traffic limit**: when effective RX+TX ≥ limit, peer is auto-suspended.
-- **Bandwidth**: best-effort `tc` HTB classes per peer IP (`bandwidth_backend: tc|nft|none`).
+- **Bandwidth (full tc)**: independent **RX** and **TX** limits per peer via Linux traffic control:
+  - **TX** (server → peer): HTB class on the WireGuard iface, filters match **destination** tunnel IP (IPv4 `/32` + IPv6 `/128`)
+  - **RX** (peer → server): ingress qdisc + **police** filters matching **source** tunnel IP
+  - Stable per-peer class IDs, SFQ under each TX class, reconcile sync removes stale limits
+  - Requires host-sized `assigned_ips` (or `/32`/`/128` in `allowed_ips`) and `bandwidth_backend: tc` (default). Set `none` to disable.
 - **Soft traffic reset**: stores offsets so user-visible counters restart without kernel reset.
 
 ## REST API

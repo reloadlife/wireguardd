@@ -10,10 +10,11 @@ import (
 
 // MockBackend is an in-memory backend for tests.
 type MockBackend struct {
-	mu       sync.Mutex
-	DevicesM map[string]*Device
-	Hooks    []string
-	Exports  map[string]string
+	mu        sync.Mutex
+	DevicesM  map[string]*Device
+	Hooks     []string
+	Exports   map[string]string
+	Bandwidth map[string]map[string]DesiredPeer // iface -> pubkey -> peer limits
 	// FailNext if set causes the next mutating call to fail.
 	FailNext error
 }
@@ -21,8 +22,9 @@ type MockBackend struct {
 // NewMock creates an empty mock backend.
 func NewMock() *MockBackend {
 	return &MockBackend{
-		DevicesM: make(map[string]*Device),
-		Exports:  make(map[string]string),
+		DevicesM:  make(map[string]*Device),
+		Exports:   make(map[string]string),
+		Bandwidth: make(map[string]map[string]DesiredPeer),
 	}
 }
 
@@ -153,8 +155,35 @@ func (m *MockBackend) ApplySuspendRoutes(ctx context.Context, iface string, peer
 	return nil
 }
 
+// BandwidthRecord is a mock applied limit.
+type BandwidthRecord struct {
+	Iface string
+	Peer  DesiredPeer
+}
+
+// Bandwidth holds last SyncBandwidth result per iface (pubkey -> peer).
+// Exposed for tests.
+var _ = BandwidthRecord{}
+
 // ApplyBandwidth implements Backend.
 func (m *MockBackend) ApplyBandwidth(ctx context.Context, iface string, peer DesiredPeer) error {
+	return m.SyncBandwidth(ctx, iface, []DesiredPeer{peer})
+}
+
+// SyncBandwidth implements Backend — records desired limits in memory.
+func (m *MockBackend) SyncBandwidth(ctx context.Context, iface string, peers []DesiredPeer) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.Bandwidth == nil {
+		m.Bandwidth = make(map[string]map[string]DesiredPeer)
+	}
+	cur := make(map[string]DesiredPeer)
+	for _, p := range peers {
+		if p.BandwidthRxBps > 0 || p.BandwidthTxBps > 0 {
+			cur[p.PublicKey] = p
+		}
+	}
+	m.Bandwidth[iface] = cur
 	return nil
 }
 

@@ -170,8 +170,13 @@ func (r *Reconciler) run(ctx context.Context) error {
 			r.log.Error("apply peers", "iface", iface.Name, "err", err)
 		}
 		for _, p := range desiredPeers {
-			_ = r.backend.ApplySuspendRoutes(ctx, iface.Name, p, p.Suspended)
-			_ = r.backend.ApplyBandwidth(ctx, iface.Name, p)
+			if err := r.backend.ApplySuspendRoutes(ctx, iface.Name, p, p.Suspended); err != nil {
+				r.log.Error("suspend routes", "iface", iface.Name, "peer", p.PublicKey, "err", err)
+			}
+		}
+		// Full TC bandwidth sync (apply + remove stale peer limits).
+		if err := r.backend.SyncBandwidth(ctx, iface.Name, desiredPeers); err != nil {
+			r.log.Error("bandwidth sync", "iface", iface.Name, "err", err)
 		}
 		if err := r.backend.SetUp(ctx, iface.Name, iface.Enabled); err != nil {
 			r.log.Error("set up", "iface", iface.Name, "err", err)

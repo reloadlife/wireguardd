@@ -22,7 +22,11 @@ wireguard:
   sample_interval: 5s
   reconcile_interval: 5s
   allow_hooks: false
-  bandwidth_backend: "tc" # tc | none (nft not yet implemented)
+  # Per-peer bandwidth via Linux tc:
+  #   TX → HTB class on wg iface (match dst tunnel IP, IPv4+IPv6)
+  #   RX → ingress police (match src tunnel IP, IPv4+IPv6)
+  # Peers need host-sized assigned_ips or /32|/128 allowed_ips for matching.
+  bandwidth_backend: "tc" # tc | none
   # use_mock_backend: true  # for dev without kernel module (required if wgctrl unavailable)
 
 log:

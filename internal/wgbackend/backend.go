@@ -77,8 +77,11 @@ type Backend interface {
 	ApplyPeers(ctx context.Context, iface string, peers []DesiredPeer) error
 	// SuspendPeerApplies blackhole/null policy for a peer's IPs.
 	ApplySuspendRoutes(ctx context.Context, iface string, peer DesiredPeer, suspend bool) error
-	// ApplyBandwidth applies per-peer bandwidth limits.
+	// ApplyBandwidth applies per-peer bandwidth limits (single peer).
 	ApplyBandwidth(ctx context.Context, iface string, peer DesiredPeer) error
+	// SyncBandwidth applies/removes full per-peer bandwidth policy for an interface.
+	// Implementations that only support single-peer ApplyBandwidth may loop peers.
+	SyncBandwidth(ctx context.Context, iface string, peers []DesiredPeer) error
 	// ExportConf writes a conf file (wg-quick style) for the interface.
 	ExportConf(ctx context.Context, path string, content string) error
 	// RunHooks runs pre/post up/down if allowed.
