@@ -69,52 +69,87 @@ func (s *tcState) iface(name string) *ifaceTCState {
 	return st
 }
 
-// SyncBandwidth applies full per-peer TC limits for an interface and removes stale peers.
+// SyncBandwidth applies full per-peer bandwidth limits for an interface and removes stale peers.
 // peers must be the complete desired set for the interface.
+// Supported backends: tc | nft | none.
 func (b *HostBackend) SyncBandwidth(ctx context.Context, iface string, peers []DesiredPeer) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.bandwidthBackend == "none" || b.bandwidthBackend == "" {
+	switch b.bandwidthBackend {
+	case "none", "":
 		return nil
+	case "tc":
+		if b.tc == nil {
+			b.tc = newTCState()
+		}
+		// Drop leftover nft table if operator switched backends.
+		b.clearInterfaceNFT(ctx, iface)
+		return b.tc.sync(ctx, b.runner, iface, peers, true)
+	case "nft":
+		if b.nft == nil {
+			b.nft = newNFTState()
+		}
+		// Drop leftover tc qdiscs if operator switched backends.
+		b.clearInterfaceTCOnly(ctx, iface)
+		return b.nft.sync(ctx, b.runner, iface, peers, true)
+	default:
+		return fmt.Errorf("unsupported bandwidth_backend %q (supported: tc, nft, none)", b.bandwidthBackend)
 	}
-	if b.bandwidthBackend != "tc" {
-		return fmt.Errorf("unsupported bandwidth_backend %q (supported: tc, none)", b.bandwidthBackend)
-	}
-	if b.tc == nil {
-		b.tc = newTCState()
-	}
-	return b.tc.sync(ctx, b.runner, iface, peers, true)
 }
 
-// ApplyBandwidth updates a single peer's limits without removing other peers' TC state.
+// ApplyBandwidth updates a single peer's limits without removing other peers' state.
 func (b *HostBackend) ApplyBandwidth(ctx context.Context, iface string, peer DesiredPeer) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.bandwidthBackend == "none" || b.bandwidthBackend == "" {
+	switch b.bandwidthBackend {
+	case "none", "":
 		return nil
+	case "tc":
+		if b.tc == nil {
+			b.tc = newTCState()
+		}
+		return b.tc.sync(ctx, b.runner, iface, []DesiredPeer{peer}, false)
+	case "nft":
+		if b.nft == nil {
+			b.nft = newNFTState()
+		}
+		return b.nft.sync(ctx, b.runner, iface, []DesiredPeer{peer}, false)
+	default:
+		return fmt.Errorf("unsupported bandwidth_backend %q (supported: tc, nft, none)", b.bandwidthBackend)
 	}
-	if b.bandwidthBackend != "tc" {
-		return fmt.Errorf("unsupported bandwidth_backend %q (supported: tc, none)", b.bandwidthBackend)
-	}
-	if b.tc == nil {
-		b.tc = newTCState()
-	}
-	return b.tc.sync(ctx, b.runner, iface, []DesiredPeer{peer}, false)
 }
 
-// clearInterfaceTC removes all TC state for an interface (best-effort).
+// clearInterfaceTC removes bandwidth enforcement for an interface (tc and/or nft).
 func (b *HostBackend) clearInterfaceTC(ctx context.Context, iface string) {
-	if b.tc == nil || b.runner == nil {
-		return
+	b.clearInterfaceTCOnly(ctx, iface)
+	b.clearInterfaceNFT(ctx, iface)
+}
+
+// clearInterfaceTCOnly removes Linux tc qdiscs for the iface (best-effort).
+func (b *HostBackend) clearInterfaceTCOnly(ctx context.Context, iface string) {
+	if b.runner != nil {
+		_, _ = b.runner.Run(ctx, "tc", "qdisc", "del", "dev", iface, "root")
+		_, _ = b.runner.Run(ctx, "tc", "qdisc", "del", "dev", iface, "ingress")
 	}
-	b.tc.mu.Lock()
-	defer b.tc.mu.Unlock()
-	// Drop root + ingress wholesale — simplest full reset.
-	_, _ = b.runner.Run(ctx, "tc", "qdisc", "del", "dev", iface, "root")
-	_, _ = b.runner.Run(ctx, "tc", "qdisc", "del", "dev", iface, "ingress")
-	delete(b.tc.ifaces, iface)
+	if b.tc != nil {
+		b.tc.mu.Lock()
+		delete(b.tc.ifaces, iface)
+		b.tc.mu.Unlock()
+	}
+}
+
+// clearInterfaceNFT removes the per-iface nftables table (best-effort).
+func (b *HostBackend) clearInterfaceNFT(ctx context.Context, iface string) {
+	if b.runner != nil {
+		_ = nftDeleteTable(ctx, b.runner, iface)
+	}
+	if b.nft != nil {
+		b.nft.mu.Lock()
+		delete(b.nft.ifaces, iface)
+		b.nft.mu.Unlock()
+	}
 }
 
 func (s *tcState) sync(ctx context.Context, runner Runner, iface string, peers []DesiredPeer, full bool) error {

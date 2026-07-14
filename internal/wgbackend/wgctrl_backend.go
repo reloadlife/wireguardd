@@ -13,7 +13,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-// HostBackend drives the real host via wgctrl + ip/wg/tc.
+// HostBackend drives the real host via wgctrl + ip/wg/tc/nft.
 type HostBackend struct {
 	mu               sync.Mutex
 	client           *wgctrl.Client
@@ -23,6 +23,7 @@ type HostBackend struct {
 	bandwidthBackend string
 	dnsBackend       string
 	tc               *tcState
+	nft              *nftState
 	routes           *routeState
 	dns              *dnsState
 }
@@ -60,6 +61,7 @@ func NewHostBackend(opts HostOptions) (*HostBackend, error) {
 		confDir:          opts.ConfDir,
 		allowHooks:       opts.AllowHooks,
 		tc:               newTCState(),
+		nft:              newNFTState(),
 		routes:           newRouteState(),
 		dns:              newDNSState(),
 		bandwidthBackend: bw,

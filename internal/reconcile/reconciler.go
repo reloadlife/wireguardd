@@ -183,7 +183,7 @@ func (r *Reconciler) run(ctx context.Context) error {
 				r.log.Error("suspend routes", "iface", iface.Name, "peer", p.PublicKey, "err", err)
 			}
 		}
-		// Full TC bandwidth sync (apply + remove stale peer limits).
+		// Full bandwidth sync (tc or nft; apply + remove stale peer limits).
 		if err := r.backend.SyncBandwidth(ctx, iface.Name, desiredPeers); err != nil {
 			r.log.Error("bandwidth sync", "iface", iface.Name, "err", err)
 		}

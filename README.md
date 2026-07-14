@@ -15,7 +15,7 @@ wireguardctl  ──REST (HTTP / Unix)──►  wireguardd
                SQLite SoT          Prometheus            SNMP v2c
                     │              /metrics                 :1161
                     ▼
-              reconciler ──► wgctrl / ip / wg / wg-quick / tc
+              reconciler ──► wgctrl / ip / wg / wg-quick / tc / nft
 ```
 
 Desired configuration lives in SQLite. Live kernel state is applied every few seconds. Optional hybrid mode also writes `/etc/wireguard/<iface>.conf` for boot via `wg-quick`.
@@ -26,7 +26,7 @@ Desired configuration lives in SQLite. Live kernel state is applied every few se
 |------|----------------|
 | Interfaces | Create/delete, up/down, listen port, fwmark, MTU, multi IPv4/IPv6 addresses, **full DNS host apply** (`resolvectl` / `resolvconf`), **full Table= routing**, Pre/Post hooks (opt-in), import/export wg-quick conf |
 | Peers | AllowedIPs, endpoint, PSK, keepalive, assigned IPs, tags/notes, client conf + QR (requires `generate_client_key` or `client_private_key`, plus interface `public_endpoint`) |
-| Policy | Suspend (strip AllowedIPs + blackhole routes), traffic quotas (auto-suspend), bandwidth limits (tc) |
+| Policy | Suspend (strip AllowedIPs + blackhole routes), traffic quotas (auto-suspend), bandwidth limits (tc / nft) |
 | Stats | Per-peer / per-interface totals + rates, handshake/connected tracking |
 | Observability | Prometheus metrics, SNMPv2c agent, audit/enforcement events |
 | Keys | Generate keypairs and PSKs |
@@ -118,11 +118,18 @@ Suspended peers are excluded from route install. Interface down / delete removes
 
 - **Suspend**: peer stays in DB; live AllowedIPs cleared; blackhole routes for assigned IPs.
 - **Traffic limit**: when effective RX+TX ≥ limit, peer is auto-suspended.
-- **Bandwidth (full tc)**: independent **RX** and **TX** limits per peer via Linux traffic control:
-  - **TX** (server → peer): HTB class on the WireGuard iface, filters match **destination** tunnel IP (IPv4 `/32` + IPv6 `/128`)
-  - **RX** (peer → server): ingress qdisc + **police** filters matching **source** tunnel IP
-  - Stable per-peer class IDs, SFQ under each TX class, reconcile sync removes stale limits
-  - Requires host-sized `assigned_ips` (or `/32`/`/128` in `allowed_ips`) and `bandwidth_backend: tc` (default). Set `none` to disable.
+- **Bandwidth** (`bandwidth_backend`): independent **RX** and **TX** limits per peer; requires host-sized `assigned_ips` (or `/32`/`/128` in `allowed_ips`):
+  - **`tc`** (default): Linux traffic control
+    - **TX** (server → peer): HTB class on the WireGuard iface, filters match **destination** tunnel IP (IPv4 + IPv6)
+    - **RX** (peer → server): ingress qdisc + **police** filters matching **source** tunnel IP
+    - Stable per-peer class IDs, SFQ under each TX class
+  - **`nft`**: full nftables backend (no tc dependency)
+    - Per-iface table `inet wireguardd_<iface>` with input/forward/output hooks
+    - **TX**: `oifname` + `ip[6] daddr` → `limit rate over … drop`
+    - **RX**: `iifname` + `ip[6] saddr` → `limit rate over … drop`
+    - Covers both locally terminated and **forwarded** tunnel traffic
+    - Interface delete / zero limits → `nft delete table …` (clean teardown)
+  - **`none`**: store limits in DB/API only; no host enforcement
 - **Soft traffic reset**: stores offsets so user-visible counters restart without kernel reset.
 
 ## REST API

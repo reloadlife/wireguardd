@@ -74,6 +74,16 @@ func LoadDaemon(path string) (*DaemonConfig, error) {
 	if cfg.Auth.Token == "" {
 		cfg.Auth.Token = v.GetString("auth.token")
 	}
+	cfg.WireGuard.BandwidthBackend = strings.ToLower(strings.TrimSpace(cfg.WireGuard.BandwidthBackend))
+	switch cfg.WireGuard.BandwidthBackend {
+	case "", "tc", "nft", "none":
+		if cfg.WireGuard.BandwidthBackend == "" {
+			cfg.WireGuard.BandwidthBackend = "tc"
+		}
+	default:
+		return nil, fmt.Errorf("wireguard.bandwidth_backend %q invalid (want tc|nft|none)", cfg.WireGuard.BandwidthBackend)
+	}
+	cfg.WireGuard.DNSBackend = strings.ToLower(strings.TrimSpace(cfg.WireGuard.DNSBackend))
 	return &cfg, nil
 }
 
