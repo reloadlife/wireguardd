@@ -85,7 +85,7 @@ FROM interfaces ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Interface
 	for rows.Next() {
 		iface, err := scanInterfaceRows(rows)

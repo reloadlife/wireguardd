@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/reloadlife/wireguardd/pkg/wgutil"
 )
 
 // Client talks to wireguardd over HTTP or a Unix socket.
@@ -97,7 +99,7 @@ func (c *Client) do(ctx context.Context, method, path string, in any, out any) e
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
@@ -220,7 +222,7 @@ func (c *Client) ListAllPeers(ctx context.Context) ([]Peer, error) {
 // GetPeer gets a peer.
 func (c *Client) GetPeer(ctx context.Context, iface, pubkey string) (*Peer, error) {
 	var out Peer
-	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + url.PathEscape(pubkey)
+	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + wgutil.PathEscapeKey(pubkey)
 	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
 		return nil, err
 	}
@@ -240,7 +242,7 @@ func (c *Client) CreatePeer(ctx context.Context, iface string, req PeerCreateReq
 // UpdatePeer patches a peer.
 func (c *Client) UpdatePeer(ctx context.Context, iface, pubkey string, req PeerUpdateRequest) (*Peer, error) {
 	var out Peer
-	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + url.PathEscape(pubkey)
+	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + wgutil.PathEscapeKey(pubkey)
 	if err := c.do(ctx, http.MethodPatch, path, req, &out); err != nil {
 		return nil, err
 	}
@@ -249,32 +251,32 @@ func (c *Client) UpdatePeer(ctx context.Context, iface, pubkey string, req PeerU
 
 // DeletePeer deletes a peer.
 func (c *Client) DeletePeer(ctx context.Context, iface, pubkey string) error {
-	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + url.PathEscape(pubkey)
+	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + wgutil.PathEscapeKey(pubkey)
 	return c.do(ctx, http.MethodDelete, path, nil, nil)
 }
 
 // SuspendPeer suspends a peer.
 func (c *Client) SuspendPeer(ctx context.Context, iface, pubkey string) error {
-	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + url.PathEscape(pubkey) + "/suspend"
+	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + wgutil.PathEscapeKey(pubkey) + "/suspend"
 	return c.do(ctx, http.MethodPost, path, nil, nil)
 }
 
 // ResumePeer resumes a peer.
 func (c *Client) ResumePeer(ctx context.Context, iface, pubkey string) error {
-	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + url.PathEscape(pubkey) + "/resume"
+	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + wgutil.PathEscapeKey(pubkey) + "/resume"
 	return c.do(ctx, http.MethodPost, path, nil, nil)
 }
 
 // ResetPeerTraffic soft-resets counters.
 func (c *Client) ResetPeerTraffic(ctx context.Context, iface, pubkey string) error {
-	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + url.PathEscape(pubkey) + "/reset-traffic"
+	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + wgutil.PathEscapeKey(pubkey) + "/reset-traffic"
 	return c.do(ctx, http.MethodPost, path, nil, nil)
 }
 
 // PeerClientConfig fetches client conf text.
 func (c *Client) PeerClientConfig(ctx context.Context, iface, pubkey string) (string, error) {
 	var out ClientConfigResponse
-	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + url.PathEscape(pubkey) + "/client-config"
+	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + wgutil.PathEscapeKey(pubkey) + "/client-config"
 	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
 		return "", err
 	}

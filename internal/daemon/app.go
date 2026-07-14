@@ -44,7 +44,7 @@ func (a *App) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	var backend wgbackend.Backend
 	if a.cfg.WireGuard.UseMockBackend {
@@ -63,7 +63,7 @@ func (a *App) Run(ctx context.Context) error {
 			backend = hb
 		}
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	cache := stats.NewCache()
 	_ = metrics.New(cache, nil)
@@ -140,7 +140,7 @@ func (a *App) Run(ctx context.Context) error {
 		if err := snmpAgent.Start(); err != nil {
 			a.log.Error("snmp start failed", "err", err)
 		} else {
-			defer snmpAgent.Close()
+			defer func() { _ = snmpAgent.Close() }()
 		}
 	}
 

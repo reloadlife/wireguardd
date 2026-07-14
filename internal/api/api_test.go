@@ -21,6 +21,7 @@ import (
 	"github.com/reloadlife/wireguardd/internal/stats"
 	"github.com/reloadlife/wireguardd/internal/wgbackend"
 	pkgapi "github.com/reloadlife/wireguardd/pkg/api"
+	"github.com/reloadlife/wireguardd/pkg/wgutil"
 )
 
 func setupServer(t *testing.T) (*api.Server, *db.Store, *wgbackend.MockBackend) {
@@ -118,14 +119,16 @@ func TestInterfacePeerLifecycle(t *testing.T) {
 	require.Equal(t, "alice", peer.Name)
 	require.NotEmpty(t, peer.PresharedKey)
 
+	pkPath := wgutil.PathEscapeKey(keys.PublicKey)
+
 	// suspend
-	doJSON(t, h, http.MethodPost, "/v1/interfaces/wg0/peers/"+keys.PublicKey+"/suspend", token, nil, http.StatusOK)
+	doJSON(t, h, http.MethodPost, "/v1/interfaces/wg0/peers/"+pkPath+"/suspend", token, nil, http.StatusOK)
 	p, err := store.GetPeer(context.Background(), "wg0", keys.PublicKey)
 	require.NoError(t, err)
 	require.True(t, p.Suspended)
 
 	// resume
-	doJSON(t, h, http.MethodPost, "/v1/interfaces/wg0/peers/"+keys.PublicKey+"/resume", token, nil, http.StatusOK)
+	doJSON(t, h, http.MethodPost, "/v1/interfaces/wg0/peers/"+pkPath+"/resume", token, nil, http.StatusOK)
 
 	// stats
 	doJSON(t, h, http.MethodGet, "/v1/stats", token, nil, http.StatusOK)
@@ -139,10 +142,10 @@ func TestInterfacePeerLifecycle(t *testing.T) {
 	doJSON(t, h, http.MethodPost, "/v1/interfaces/wg0/up", token, nil, http.StatusOK)
 
 	// client config
-	doJSON(t, h, http.MethodGet, "/v1/interfaces/wg0/peers/"+keys.PublicKey+"/client-config", token, nil, http.StatusOK)
+	doJSON(t, h, http.MethodGet, "/v1/interfaces/wg0/peers/"+pkPath+"/client-config", token, nil, http.StatusOK)
 
 	// delete peer
-	req := httptest.NewRequest(http.MethodDelete, "/v1/interfaces/wg0/peers/"+keys.PublicKey, nil)
+	req := httptest.NewRequest(http.MethodDelete, "/v1/interfaces/wg0/peers/"+pkPath, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rr = httptest.NewRecorder()
 	h.ServeHTTP(rr, req)

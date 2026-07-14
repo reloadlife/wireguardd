@@ -70,7 +70,7 @@ ORDER BY p.name, p.public_key`, ifaceName)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanPeers(rows)
 }
 
@@ -83,7 +83,7 @@ ORDER BY i.name, p.name, p.public_key`)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanPeers(rows)
 }
 
