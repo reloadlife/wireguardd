@@ -145,14 +145,72 @@ type Peer struct {
 	LastHandshakeAt     string    `json:"last_handshake_at,omitempty"`
 	ConnectedSince      string    `json:"connected_since,omitempty"`
 	LastEndpoint        string    `json:"last_endpoint,omitempty"`
-	RxBytes             int64     `json:"rx_bytes"`
-	TxBytes             int64     `json:"tx_bytes"`
-	RxBps               float64   `json:"rx_bps"`
-	TxBps               float64   `json:"tx_bps"`
-	Connected           bool      `json:"connected"`
-	Tags                []string  `json:"tags"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
+	// Flat counters kept for compatibility (same as traffic.total / traffic.rate EWMA).
+	RxBytes   int64   `json:"rx_bytes"` // accumulative since soft-reset
+	TxBytes   int64   `json:"tx_bytes"`
+	RxBps     float64 `json:"rx_bps"` // EWMA rate (bytes/sec)
+	TxBps     float64 `json:"tx_bps"`
+	// Traffic is the dual model: accumulative totals + time-based rates + lookback windows.
+	Traffic   PeerTraffic `json:"traffic"`
+	Connected bool        `json:"connected"`
+	Tags      []string    `json:"tags"`
+	CreatedAt time.Time   `json:"created_at"`
+	UpdatedAt time.Time   `json:"updated_at"`
+}
+
+// PeerTraffic dual counter model for a peer.
+type PeerTraffic struct {
+	// Total is accumulative bytes since soft-reset (or peer creation).
+	Total TrafficBytes `json:"total"`
+	// Rate is current time-based throughput.
+	Rate TrafficRates `json:"rate"`
+	// Windows are bytes transferred over fixed lookbacks (1m,5m,15m,1h,24h).
+	Windows map[string]TrafficWindow `json:"windows,omitempty"`
+}
+
+// TrafficBytes is an accumulative byte pair.
+type TrafficBytes struct {
+	RxBytes int64 `json:"rx_bytes"`
+	TxBytes int64 `json:"tx_bytes"`
+}
+
+// TrafficRates is time-based throughput (bytes/sec).
+type TrafficRates struct {
+	RxBps       float64 `json:"rx_bps"`                 // EWMA-smoothed
+	TxBps       float64 `json:"tx_bps"`                 // EWMA-smoothed
+	RxBpsRaw    float64 `json:"rx_bps_raw"`             // last sample interval
+	TxBpsRaw    float64 `json:"tx_bps_raw"`             // last sample interval
+	IntervalSec float64 `json:"interval_sec,omitempty"` // last sample duration
+}
+
+// TrafficWindow is period traffic (delta over a lookback) + average rate.
+type TrafficWindow struct {
+	RxBytes  int64   `json:"rx_bytes"`
+	TxBytes  int64   `json:"tx_bytes"`
+	RxBpsAvg float64 `json:"rx_bps_avg"`
+	TxBpsAvg float64 `json:"tx_bps_avg"`
+	SpanSec  float64 `json:"span_sec,omitempty"`
+}
+
+// PeerTrafficHistory is a time series of samples for graphing.
+type PeerTrafficHistory struct {
+	Interface string               `json:"interface"`
+	PublicKey string               `json:"public_key"`
+	From      time.Time            `json:"from"`
+	To        time.Time            `json:"to"`
+	// Traffic dual snapshot at "to" (totals + rates + windows).
+	Traffic PeerTraffic `json:"traffic"`
+	// Samples are accumulative totals and rates at each sample point.
+	Samples []TrafficSamplePoint `json:"samples"`
+}
+
+// TrafficSamplePoint is one historical observation.
+type TrafficSamplePoint struct {
+	Time    time.Time `json:"time"`
+	RxBytes int64     `json:"rx_bytes"` // accumulative at sample time
+	TxBytes int64     `json:"tx_bytes"`
+	RxBps   float64   `json:"rx_bps"` // rate at sample time
+	TxBps   float64   `json:"tx_bps"`
 }
 
 // KeyGenerateRequest requests key material.
@@ -185,10 +243,12 @@ type StatsSummary struct {
 	Peers      int     `json:"peers"`
 	Connected  int     `json:"connected"`
 	Suspended  int     `json:"suspended"`
-	RxBytes    int64   `json:"rx_bytes"`
+	RxBytes    int64   `json:"rx_bytes"` // accumulative
 	TxBytes    int64   `json:"tx_bytes"`
-	RxBps      float64 `json:"rx_bps"`
+	RxBps      float64 `json:"rx_bps"` // current EWMA rate
 	TxBps      float64 `json:"tx_bps"`
+	// Traffic dual rollup (sum of peer totals + sum of peer rates).
+	Traffic PeerTraffic `json:"traffic"`
 }
 
 // DaemonConfig is non-secret runtime config.

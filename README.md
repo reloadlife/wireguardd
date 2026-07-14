@@ -27,7 +27,7 @@ Desired configuration lives in SQLite. Live kernel state is applied every few se
 | Interfaces | Create/delete, up/down, listen port, fwmark, MTU, multi IPv4/IPv6 addresses, **full DNS host apply** (`resolvectl` / `resolvconf`), **full Table= routing**, Pre/Post hooks (opt-in), import/export wg-quick conf |
 | Peers | AllowedIPs, endpoint, PSK, keepalive, assigned IPs, tags/notes, client conf + QR (requires `generate_client_key` or `client_private_key`, plus interface `public_endpoint`) |
 | Policy | Suspend (strip AllowedIPs + blackhole routes), traffic quotas (auto-suspend), bandwidth limits (tc / nft) |
-| Stats | Per-peer / per-interface totals + rates, handshake/connected tracking |
+| Stats | Dual peer counters: **accumulative totals** + **time-based** rates (EWMA + raw) + lookback windows (1m/5m/15m/1h/24h), history samples, handshake/connected tracking |
 | Observability | Prometheus metrics, SNMPv2c agent, audit/enforcement events |
 | Keys | Generate keypairs and PSKs |
 
@@ -131,6 +131,11 @@ Suspended peers are excluded from route install. Interface down / delete removes
     - Interface delete / zero limits → `nft delete table …` (clean teardown)
   - **`none`**: store limits in DB/API only; no host enforcement
 - **Soft traffic reset**: stores offsets so user-visible counters restart without kernel reset.
+- **Peer counters (dual model)**:
+  - **Accumulative** (`traffic.total` / `rx_bytes`+`tx_bytes`): bytes since soft-reset
+  - **Time-based rates** (`traffic.rate`): EWMA-smoothed + last-interval raw (bytes/sec)
+  - **Lookback windows** (`traffic.windows`): bytes + avg rate over `1m`, `5m`, `15m`, `1h`, `24h`
+  - History: `GET /v1/interfaces/{name}/peers/{pubkey}/traffic?from=&to=&limit=`
 
 ## REST API
 
@@ -144,13 +149,14 @@ Bearer token required on `/v1/*`. OpenAPI: [`api/openapi.yaml`](api/openapi.yaml
 | POST | `/v1/interfaces/{name}/up\|down` | Admin state |
 | POST | `/v1/interfaces/{name}/peers` | Add peer |
 | POST | `/v1/interfaces/{name}/peers/{pubkey}/suspend` | Suspend |
-| GET | `/v1/stats` | Rollup |
+| GET | `/v1/stats` | Rollup (totals + rates) |
+| GET | `/v1/interfaces/{name}/peers/{pubkey}/traffic` | Dual counters + sample history |
 | POST | `/v1/keys/generate` | Keys |
 | GET | `/metrics` | Prometheus |
 
 ## Prometheus
 
-Scrape `http://host:9091/metrics`. Metrics include per-interface and per-peer counters, rates, handshake age, connected, suspended, and limits. See `internal/metrics/prometheus.go`.
+Scrape `http://host:9091/metrics`. Metrics include per-interface and per-peer **accumulative** counters (`*_bytes_total`), **time-based** rates (`*_bytes_per_second` EWMA + `_raw`), lookback windows (`*_bytes_window{window=…}`), handshake age, connected, suspended, and limits. See `internal/metrics/prometheus.go`.
 
 ## SNMP (full SNMPv2c agent)
 

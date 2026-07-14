@@ -395,6 +395,38 @@ func (s *Server) toAPIPeer(p *db.Peer, reveal bool) pkgapi.Peer {
 			}
 		}
 	}
+	effRx, effTx := p.EffectiveRx(), p.EffectiveTx()
+	traffic := pkgapi.PeerTraffic{
+		Total: pkgapi.TrafficBytes{RxBytes: effRx, TxBytes: effTx},
+		Rate: pkgapi.TrafficRates{
+			RxBps: p.LastRxBps, TxBps: p.LastTxBps,
+		},
+	}
+	// Prefer live cache for raw rates + lookback windows (time-based).
+	if s.cache != nil {
+		if st, ok := s.cache.GetPeer(p.InterfaceName, p.PublicKey); ok {
+			traffic.Rate.RxBps = st.RxBps
+			traffic.Rate.TxBps = st.TxBps
+			traffic.Rate.RxBpsRaw = st.RxBpsRaw
+			traffic.Rate.TxBpsRaw = st.TxBpsRaw
+			traffic.Rate.IntervalSec = st.IntervalSec
+			if len(st.Windows) > 0 {
+				traffic.Windows = make(map[string]pkgapi.TrafficWindow, len(st.Windows))
+				for k, w := range st.Windows {
+					traffic.Windows[k] = pkgapi.TrafficWindow{
+						RxBytes: w.RxBytes, TxBytes: w.TxBytes,
+						RxBpsAvg: w.RxBpsAvg, TxBpsAvg: w.TxBpsAvg, SpanSec: w.SpanSec,
+					}
+				}
+			}
+			// Prefer cache totals if present (same as DB after sample).
+			if st.RxBytes > 0 || st.TxBytes > 0 || st.UpdatedAt.After(p.UpdatedAt) {
+				traffic.Total.RxBytes = st.RxBytes
+				traffic.Total.TxBytes = st.TxBytes
+				effRx, effTx = st.RxBytes, st.TxBytes
+			}
+		}
+	}
 	out := pkgapi.Peer{
 		ID: p.ID, InterfaceName: p.InterfaceName, PublicKey: p.PublicKey,
 		Name: p.Name, Notes: p.Notes, AllowedIPs: p.AllowedIPs, AssignedIPs: p.AssignedIPs,
@@ -403,8 +435,9 @@ func (s *Server) toAPIPeer(p *db.Peer, reveal bool) pkgapi.Peer {
 		BandwidthRxBps: p.BandwidthRxBps, BandwidthTxBps: p.BandwidthTxBps,
 		FirstHandshakeAt: p.FirstHandshakeAt, LastHandshakeAt: p.LastHandshakeAt,
 		ConnectedSince: p.ConnectedSince, LastEndpoint: p.LastEndpoint,
-		RxBytes: p.EffectiveRx(), TxBytes: p.EffectiveTx(),
-		RxBps: p.LastRxBps, TxBps: p.LastTxBps, Connected: connected,
+		RxBytes: effRx, TxBytes: effTx,
+		RxBps: traffic.Rate.RxBps, TxBps: traffic.Rate.TxBps,
+		Traffic: traffic, Connected: connected,
 		Tags: p.Tags, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
 	if reveal {

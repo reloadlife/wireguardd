@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -271,6 +272,30 @@ func (c *Client) ResumePeer(ctx context.Context, iface, pubkey string) error {
 func (c *Client) ResetPeerTraffic(ctx context.Context, iface, pubkey string) error {
 	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + wgutil.PathEscapeKey(pubkey) + "/reset-traffic"
 	return c.do(ctx, http.MethodPost, path, nil, nil)
+}
+
+// PeerTraffic returns dual counters (accumulative + rates + windows) and optional history.
+// from/to may be zero to use server defaults (last 1h).
+func (c *Client) PeerTraffic(ctx context.Context, iface, pubkey string, from, to time.Time, limit int) (*PeerTrafficHistory, error) {
+	var out PeerTrafficHistory
+	path := "/v1/interfaces/" + url.PathEscape(iface) + "/peers/" + wgutil.PathEscapeKey(pubkey) + "/traffic"
+	q := url.Values{}
+	if !from.IsZero() {
+		q.Set("from", from.UTC().Format(time.RFC3339Nano))
+	}
+	if !to.IsZero() {
+		q.Set("to", to.UTC().Format(time.RFC3339Nano))
+	}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	if enc := q.Encode(); enc != "" {
+		path += "?" + enc
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // PeerClientConfig fetches client conf text.

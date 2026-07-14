@@ -812,8 +812,8 @@ func (m rootModel) viewInterfaces() string {
 
 func (m rootModel) viewPeers() string {
 	var b strings.Builder
-	b.WriteString(headerStyle.Render(fmt.Sprintf("%-8s %-12s %-12s %-6s %10s %10s %s",
-		"IFACE", "NAME", "PUBKEY", "STATE", "RX/s", "TOTAL", "ENDPOINT")))
+	b.WriteString(headerStyle.Render(fmt.Sprintf("%-8s %-12s %-12s %-6s %9s %9s %10s %s",
+		"IFACE", "NAME", "PUBKEY", "STATE", "RX/s", "TX/s", "TOTAL", "ENDPOINT")))
 	b.WriteString("\n")
 	for i, p := range m.peers {
 		var state string
@@ -825,9 +825,18 @@ func (m rootModel) viewPeers() string {
 		default:
 			state = dimStyle.Render("idle")
 		}
-		line := fmt.Sprintf("%-8s %-12s %-12s %s %10s %10s %s",
+		rxBps, txBps := p.RxBps, p.TxBps
+		if p.Traffic.Rate.RxBps > 0 || p.Traffic.Rate.TxBps > 0 {
+			rxBps, txBps = p.Traffic.Rate.RxBps, p.Traffic.Rate.TxBps
+		}
+		total := p.RxBytes + p.TxBytes
+		if p.Traffic.Total.RxBytes+p.Traffic.Total.TxBytes > 0 {
+			total = p.Traffic.Total.RxBytes + p.Traffic.Total.TxBytes
+		}
+		line := fmt.Sprintf("%-8s %-12s %-12s %s %9s %9s %10s %s",
 			p.InterfaceName, trunc(p.Name, 12), wgutil.ShortKey(p.PublicKey), state,
-			formatBps(p.RxBps), formatBytes(p.RxBytes+p.TxBytes), trunc(firstNonEmpty(p.LastEndpoint, p.Endpoint), 22))
+			formatBps(rxBps), formatBps(txBps), formatBytes(total),
+			trunc(firstNonEmpty(p.LastEndpoint, p.Endpoint), 22))
 		if i == m.cursor {
 			line = selStyle.Render(line)
 		}
@@ -969,8 +978,31 @@ func (m rootModel) viewPeerDetail() string {
 	kv("AllowedIPs", joinCSV(p.AllowedIPs))
 	kv("Assigned IPs", joinCSV(p.AssignedIPs))
 	kv("Keepalive", fmt.Sprintf("%d", p.PersistentKeepalive))
-	kv("RX / TX", formatBytes(p.RxBytes)+" / "+formatBytes(p.TxBytes))
-	kv("RX/s TX/s", formatBps(p.RxBps)+" / "+formatBps(p.TxBps))
+	// Accumulative totals (since soft-reset)
+	totRx, totTx := p.Traffic.Total.RxBytes, p.Traffic.Total.TxBytes
+	if totRx == 0 && totTx == 0 {
+		totRx, totTx = p.RxBytes, p.TxBytes
+	}
+	kv("Total RX/TX", formatBytes(totRx)+" / "+formatBytes(totTx))
+	// Time-based rates
+	rate := p.Traffic.Rate
+	if rate.RxBps == 0 && rate.TxBps == 0 {
+		rate.RxBps, rate.TxBps = p.RxBps, p.TxBps
+	}
+	kv("Rate EWMA", formatBps(rate.RxBps)+" / "+formatBps(rate.TxBps))
+	if rate.RxBpsRaw > 0 || rate.TxBpsRaw > 0 {
+		kv("Rate raw", formatBps(rate.RxBpsRaw)+" / "+formatBps(rate.TxBpsRaw))
+	}
+	// Lookback windows
+	for _, name := range []string{"1m", "5m", "15m", "1h", "24h"} {
+		w, ok := p.Traffic.Windows[name]
+		if !ok {
+			continue
+		}
+		kv("Window "+name, fmt.Sprintf("rx=%s tx=%s avg %s/%s",
+			formatBytes(w.RxBytes), formatBytes(w.TxBytes),
+			formatBps(w.RxBpsAvg), formatBps(w.TxBpsAvg)))
+	}
 	kv("Traffic limit", fmt.Sprintf("%d B", p.TrafficLimitBytes))
 	kv("BW limits", fmt.Sprintf("rx=%d tx=%d bps", p.BandwidthRxBps, p.BandwidthTxBps))
 	kv("Last handshake", p.LastHandshakeAt)

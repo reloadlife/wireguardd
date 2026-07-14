@@ -73,6 +73,10 @@ type cacheCollector struct {
 	peerTx        *prometheus.Desc
 	peerRxBps     *prometheus.Desc
 	peerTxBps     *prometheus.Desc
+	peerRxBpsRaw  *prometheus.Desc
+	peerTxBpsRaw  *prometheus.Desc
+	peerWinRx     *prometheus.Desc
+	peerWinTx     *prometheus.Desc
 	peerSusp      *prometheus.Desc
 	peerLimit     *prometheus.Desc
 	peerBwRx      *prometheus.Desc
@@ -98,11 +102,15 @@ func newCacheCollector(cache *stats.Cache) *cacheCollector {
 		peerAge:       prometheus.NewDesc("wireguard_peer_handshake_age_seconds", "Handshake age", []string{"interface", "public_key"}, nil),
 		peerConn:      prometheus.NewDesc("wireguard_peer_connected", "Peer connected", []string{"interface", "public_key"}, nil),
 		peerConnSince: prometheus.NewDesc("wireguard_peer_connected_since_seconds", "Connected since unix", []string{"interface", "public_key"}, nil),
-		peerRx:        prometheus.NewDesc("wireguard_peer_receive_bytes_total", "Peer RX bytes", []string{"interface", "public_key"}, nil),
-		peerTx:        prometheus.NewDesc("wireguard_peer_transmit_bytes_total", "Peer TX bytes", []string{"interface", "public_key"}, nil),
-		peerRxBps:     prometheus.NewDesc("wireguard_peer_receive_bytes_per_second", "Peer RX rate", []string{"interface", "public_key"}, nil),
-		peerTxBps:     prometheus.NewDesc("wireguard_peer_transmit_bytes_per_second", "Peer TX rate", []string{"interface", "public_key"}, nil),
-		peerSusp:      prometheus.NewDesc("wireguard_peer_suspended", "Peer suspended", []string{"interface", "public_key"}, nil),
+		peerRx:       prometheus.NewDesc("wireguard_peer_receive_bytes_total", "Peer RX accumulative bytes (since soft-reset)", []string{"interface", "public_key"}, nil),
+		peerTx:       prometheus.NewDesc("wireguard_peer_transmit_bytes_total", "Peer TX accumulative bytes (since soft-reset)", []string{"interface", "public_key"}, nil),
+		peerRxBps:    prometheus.NewDesc("wireguard_peer_receive_bytes_per_second", "Peer RX EWMA rate (bytes/sec)", []string{"interface", "public_key"}, nil),
+		peerTxBps:    prometheus.NewDesc("wireguard_peer_transmit_bytes_per_second", "Peer TX EWMA rate (bytes/sec)", []string{"interface", "public_key"}, nil),
+		peerRxBpsRaw: prometheus.NewDesc("wireguard_peer_receive_bytes_per_second_raw", "Peer RX last-interval rate (bytes/sec)", []string{"interface", "public_key"}, nil),
+		peerTxBpsRaw: prometheus.NewDesc("wireguard_peer_transmit_bytes_per_second_raw", "Peer TX last-interval rate (bytes/sec)", []string{"interface", "public_key"}, nil),
+		peerWinRx:    prometheus.NewDesc("wireguard_peer_receive_bytes_window", "Peer RX bytes over lookback window", []string{"interface", "public_key", "window"}, nil),
+		peerWinTx:    prometheus.NewDesc("wireguard_peer_transmit_bytes_window", "Peer TX bytes over lookback window", []string{"interface", "public_key", "window"}, nil),
+		peerSusp:     prometheus.NewDesc("wireguard_peer_suspended", "Peer suspended", []string{"interface", "public_key"}, nil),
 		peerLimit:     prometheus.NewDesc("wireguard_peer_traffic_limit_bytes", "Traffic limit", []string{"interface", "public_key"}, nil),
 		peerBwRx:      prometheus.NewDesc("wireguard_peer_bandwidth_rx_limit_bps", "RX bandwidth limit", []string{"interface", "public_key"}, nil),
 		peerBwTx:      prometheus.NewDesc("wireguard_peer_bandwidth_tx_limit_bps", "TX bandwidth limit", []string{"interface", "public_key"}, nil),
@@ -116,6 +124,7 @@ func (c *cacheCollector) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{
 		c.ifaceUp, c.ifacePeers, c.ifacePort, c.ifaceRx, c.ifaceTx, c.ifaceRxBps, c.ifaceTxBps, c.ifaceInfo,
 		c.peerHandshake, c.peerAge, c.peerConn, c.peerConnSince, c.peerRx, c.peerTx, c.peerRxBps, c.peerTxBps,
+		c.peerRxBpsRaw, c.peerTxBpsRaw, c.peerWinRx, c.peerWinTx,
 		c.peerSusp, c.peerLimit, c.peerBwRx, c.peerBwTx, c.peerInfo, c.peerAllowed, c.peerEndpoint,
 	} {
 		ch <- d
@@ -167,6 +176,12 @@ func (c *cacheCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(c.peerTx, prometheus.CounterValue, float64(p.TxBytes), labels...)
 		ch <- prometheus.MustNewConstMetric(c.peerRxBps, prometheus.GaugeValue, p.RxBps, labels...)
 		ch <- prometheus.MustNewConstMetric(c.peerTxBps, prometheus.GaugeValue, p.TxBps, labels...)
+		ch <- prometheus.MustNewConstMetric(c.peerRxBpsRaw, prometheus.GaugeValue, p.RxBpsRaw, labels...)
+		ch <- prometheus.MustNewConstMetric(c.peerTxBpsRaw, prometheus.GaugeValue, p.TxBpsRaw, labels...)
+		for win, wc := range p.Windows {
+			ch <- prometheus.MustNewConstMetric(c.peerWinRx, prometheus.GaugeValue, float64(wc.RxBytes), p.Interface, p.PublicKey, win)
+			ch <- prometheus.MustNewConstMetric(c.peerWinTx, prometheus.GaugeValue, float64(wc.TxBytes), p.Interface, p.PublicKey, win)
+		}
 		ch <- prometheus.MustNewConstMetric(c.peerSusp, prometheus.GaugeValue, susp, labels...)
 		ch <- prometheus.MustNewConstMetric(c.peerLimit, prometheus.GaugeValue, float64(p.TrafficLimitBytes), labels...)
 		ch <- prometheus.MustNewConstMetric(c.peerBwRx, prometheus.GaugeValue, float64(p.BandwidthRxBps), labels...)

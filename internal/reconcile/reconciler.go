@@ -330,10 +330,13 @@ func (r *Reconciler) sampleInterface(ctx context.Context, iface *db.Interface, p
 		}
 
 		key := iface.Name + "/" + p.PublicKey
+		// Rates use kernel counters (pre-offset) so soft-reset does not spike rates.
 		cur := stats.Sample{Time: now, Rx: rx, Tx: tx}
-		var rxBps, txBps float64
+		var rxBps, txBps, rxRaw, txRaw, intervalSec float64
 		if prev, ok := r.prevSample[key]; ok {
 			rate := stats.ComputeRate(prev, cur)
+			rxRaw, txRaw = rate.RxBps, rate.TxBps
+			intervalSec = cur.Time.Sub(prev.Time).Seconds()
 			rxBps = stats.EWMA(p.LastRxBps, rate.RxBps, 0.3)
 			txBps = stats.EWMA(p.LastTxBps, rate.TxBps, 0.3)
 		}
@@ -362,15 +365,19 @@ func (r *Reconciler) sampleInterface(ctx context.Context, iface *db.Interface, p
 			}
 		}
 
+		effRx, effTx := p.EffectiveRx(), p.EffectiveTx()
 		_ = r.store.UpdatePeerStats(ctx, p)
+		// Samples store accumulative effective counters + rates for window math / history.
 		_ = r.store.InsertSample(ctx, db.TrafficSample{
 			PeerID:    p.ID,
 			SampledAt: now,
-			RxBytes:   p.EffectiveRx(),
-			TxBytes:   p.EffectiveTx(),
+			RxBytes:   effRx,
+			TxBytes:   effTx,
 			RxBps:     rxBps,
 			TxBps:     txBps,
 		})
+
+		windows := r.computePeerWindows(ctx, p.ID, now, effRx, effTx)
 
 		var connSince time.Time
 		if p.ConnectedSince != "" {
@@ -385,18 +392,22 @@ func (r *Reconciler) sampleInterface(ctx context.Context, iface *db.Interface, p
 			LastHandshake:     hs,
 			Connected:         connected,
 			ConnectedSince:    connSince,
-			RxBytes:           p.EffectiveRx(),
-			TxBytes:           p.EffectiveTx(),
+			RxBytes:           effRx,
+			TxBytes:           effTx,
 			RxBps:             rxBps,
 			TxBps:             txBps,
+			RxBpsRaw:          rxRaw,
+			TxBpsRaw:          txRaw,
+			IntervalSec:       intervalSec,
+			Windows:           windows,
 			Suspended:         p.Suspended,
 			TrafficLimitBytes: p.TrafficLimitBytes,
 			BandwidthRxBps:    p.BandwidthRxBps,
 			BandwidthTxBps:    p.BandwidthTxBps,
 			UpdatedAt:         now,
 		})
-		sumRx += p.EffectiveRx()
-		sumTx += p.EffectiveTx()
+		sumRx += effRx
+		sumTx += effTx
 		sumRxBps += rxBps
 		sumTxBps += txBps
 	}
@@ -414,6 +425,34 @@ func (r *Reconciler) sampleInterface(ctx context.Context, iface *db.Interface, p
 		UpdatedAt:  now,
 	})
 	return nil
+}
+
+// computePeerWindows builds lookback byte counters from traffic_samples.
+func (r *Reconciler) computePeerWindows(ctx context.Context, peerID int64, now time.Time, curRx, curTx int64) map[string]stats.WindowCounters {
+	cutoffs := make(map[string]time.Time, len(stats.DefaultWindows))
+	for _, w := range stats.DefaultWindows {
+		cutoffs[w.Name] = now.Add(-w.Duration)
+	}
+	bases, err := r.store.PeerWindowBaselines(ctx, peerID, cutoffs)
+	if err != nil {
+		r.log.Debug("peer window baselines", "peer_id", peerID, "err", err)
+		return nil
+	}
+	out := make(map[string]stats.WindowCounters, len(stats.DefaultWindows))
+	for _, w := range stats.DefaultWindows {
+		base, ok := bases[w.Name]
+		if !ok {
+			// No history that far back: entire accumulative total is "in window".
+			out[w.Name] = stats.WindowDelta(curRx, curTx, 0, 0, w.Duration)
+			continue
+		}
+		span := now.Sub(base.SampledAt)
+		if span <= 0 {
+			span = w.Duration
+		}
+		out[w.Name] = stats.WindowDelta(curRx, curTx, base.RxBytes, base.TxBytes, span)
+	}
+	return out
 }
 
 // Loop runs until context cancellation.

@@ -102,6 +102,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/interfaces/{name}/peers/{pubkey}/suspend", s.handleSuspendPeer)
 		r.Post("/interfaces/{name}/peers/{pubkey}/resume", s.handleResumePeer)
 		r.Post("/interfaces/{name}/peers/{pubkey}/reset-traffic", s.handleResetPeerTraffic)
+		r.Get("/interfaces/{name}/peers/{pubkey}/traffic", s.handlePeerTraffic)
 		r.Get("/interfaces/{name}/peers/{pubkey}/client-config", s.handlePeerClientConfig)
 		r.Get("/interfaces/{name}/peers/{pubkey}/qr", s.handlePeerQR)
 	})
