@@ -13,9 +13,13 @@ import (
 )
 
 type tickMsg time.Time
-type flashClearMsg struct{}
+
+type flashClearMsg struct {
+	id int
+}
 
 type dataMsg struct {
+	gen    uint64
 	ifaces []pkgapi.Interface
 	peers  []pkgapi.Peer
 	stats  *pkgapi.StatsSummary
@@ -43,15 +47,16 @@ func tickCmd(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
-func flashClearCmd() tea.Cmd {
-	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg { return flashClearMsg{} })
+func flashClearCmd(id int) tea.Cmd {
+	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg { return flashClearMsg{id: id} })
 }
 
-func fetchData(c *pkgapi.Client) tea.Cmd {
+func fetchData(c *pkgapi.Client, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		var msg dataMsg
+		msg.gen = gen
 		ifaces, err := c.ListInterfaces(ctx)
 		if err != nil {
 			msg.err = err

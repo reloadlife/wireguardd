@@ -65,7 +65,16 @@ func New(store *db.Store, backend wgbackend.Backend, cache *stats.Cache, cfg Con
 
 // SetMetrics wires optional reconcile metrics.
 func (r *Reconciler) SetMetrics(m MetricsObserver) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.metrics = m
+}
+
+// Exclusive runs fn while holding the reconciler lock, serializing with RunOnce.
+func (r *Reconciler) Exclusive(fn func() error) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return fn()
 }
 
 // LastError returns the last reconcile error.
@@ -209,6 +218,19 @@ func (r *Reconciler) run(ctx context.Context) error {
 		}
 	}
 
+	// Remove previously managed interfaces that are no longer desired.
+	for name := range r.hookState {
+		if _, ok := desiredNames[name]; ok {
+			continue
+		}
+		if _, live := liveNames[name]; live {
+			if err := r.backend.RemoveInterface(ctx, name); err != nil {
+				r.log.Error("remove stale interface", "iface", name, "err", err)
+			}
+		}
+		delete(r.hookState, name)
+	}
+
 	// Drop metrics cache entries for deleted interfaces/peers.
 	keepIfaces := make(map[string]struct{}, len(desiredNames))
 	for n := range desiredNames {
@@ -219,8 +241,13 @@ func (r *Reconciler) run(ctx context.Context) error {
 	for _, p := range allPeers {
 		keepPeers[p.InterfaceName+"/"+p.PublicKey] = struct{}{}
 	}
+	// Prune prevSample keys not in keepPeers (deleted peers/ifaces).
+	for key := range r.prevSample {
+		if _, ok := keepPeers[key]; !ok {
+			delete(r.prevSample, key)
+		}
+	}
 	r.cache.Retain(keepIfaces, keepPeers)
-	_ = liveNames
 
 	// Purge old samples occasionally
 	_, _ = r.store.PurgeSamples(ctx, 24*time.Hour)

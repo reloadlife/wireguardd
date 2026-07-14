@@ -79,6 +79,9 @@ func newDNSState() *dnsState {
 
 // SyncDNS applies or clears host DNS for the interface (wg-quick parity).
 func (b *HostBackend) SyncDNS(ctx context.Context, desired DesiredInterface) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	if b.dns == nil {
 		b.dns = newDNSState()
 	}

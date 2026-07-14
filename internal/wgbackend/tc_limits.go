@@ -72,6 +72,9 @@ func (s *tcState) iface(name string) *ifaceTCState {
 // SyncBandwidth applies full per-peer TC limits for an interface and removes stale peers.
 // peers must be the complete desired set for the interface.
 func (b *HostBackend) SyncBandwidth(ctx context.Context, iface string, peers []DesiredPeer) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	if b.bandwidthBackend == "none" || b.bandwidthBackend == "" {
 		return nil
 	}
@@ -86,6 +89,9 @@ func (b *HostBackend) SyncBandwidth(ctx context.Context, iface string, peers []D
 
 // ApplyBandwidth updates a single peer's limits without removing other peers' TC state.
 func (b *HostBackend) ApplyBandwidth(ctx context.Context, iface string, peer DesiredPeer) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	if b.bandwidthBackend == "none" || b.bandwidthBackend == "" {
 		return nil
 	}

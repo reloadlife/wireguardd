@@ -69,14 +69,42 @@ type rootModel struct {
 	detailPeer *pkgapi.Peer
 	detailIf   *pkgapi.Interface
 	scroll     int
+
+	fetchGen uint64 // generation counter for in-flight data fetches
+	busy     bool   // true while a mutating action is in flight
+	flashID  int    // generation for flash clear; only matching id clears
 }
 
 func newRootModel(cfg Config) rootModel {
 	return rootModel{cfg: cfg, status: "connecting…", mode: modeList}
 }
 
+// beginFetch bumps fetchGen and returns a fetch cmd tagged with that gen.
+func (m rootModel) beginFetch() (rootModel, tea.Cmd) {
+	m.fetchGen++
+	return m, fetchData(m.cfg.Client, m.fetchGen)
+}
+
+// startMutate marks the model busy and returns cmd, or no-ops if already busy.
+func (m rootModel) startMutate(cmd tea.Cmd) (tea.Model, tea.Cmd) {
+	if m.busy {
+		return m, nil
+	}
+	m.busy = true
+	return m, cmd
+}
+
+// setFlash stores a flash message and schedules a matching clear.
+func (m rootModel) setFlash(s string) (rootModel, tea.Cmd) {
+	m.flashID++
+	m.flash = s
+	return m, flashClearCmd(m.flashID)
+}
+
 func (m rootModel) Init() tea.Cmd {
-	return tea.Batch(fetchData(m.cfg.Client), tickCmd(m.cfg.RefreshInterval))
+	// fetchGen starts at 0; initial fetch uses gen 0 to match the model zero value
+	// (Init cannot update the model).
+	return tea.Batch(fetchData(m.cfg.Client, m.fetchGen), tickCmd(m.cfg.RefreshInterval))
 }
 
 func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -88,15 +116,21 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		if m.mode == modeList {
-			return m, tea.Batch(fetchData(m.cfg.Client), tickCmd(m.cfg.RefreshInterval))
+			m, fetch := m.beginFetch()
+			return m, tea.Batch(fetch, tickCmd(m.cfg.RefreshInterval))
 		}
 		return m, tickCmd(m.cfg.RefreshInterval)
 
 	case flashClearMsg:
-		m.flash = ""
+		if msg.id == m.flashID {
+			m.flash = ""
+		}
 		return m, nil
 
 	case dataMsg:
+		if msg.gen != m.fetchGen {
+			return m, nil // stale fetch
+		}
 		if msg.err != nil {
 			m.err = msg.err.Error()
 			m.status = "error"
@@ -138,24 +172,27 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.lastKeys = msg.keys
 			m.err = ""
-			m.flash = "keys generated"
-			return m, flashClearCmd()
+			m, flashCmd := m.setFlash("keys generated")
+			return m, flashCmd
 		}
 		return m, nil
 
 	case actionDoneMsg:
+		m.busy = false
 		if msg.err != nil {
 			m.err = msg.err.Error()
 			m.status = "error"
 			return m, nil
 		}
 		m.err = ""
-		m.flash = msg.flash
 		m.mode = modeList
 		m.confirm = confirmNone
-		cmds := []tea.Cmd{flashClearCmd()}
+		m, flashCmd := m.setFlash(msg.flash)
+		cmds := []tea.Cmd{flashCmd}
 		if msg.refresh {
-			cmds = append(cmds, fetchData(m.cfg.Client))
+			var fetch tea.Cmd
+			m, fetch = m.beginFetch()
+			cmds = append(cmds, fetch)
 		}
 		return m, tea.Batch(cmds...)
 
@@ -221,17 +258,20 @@ func (m rootModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m rootModel) handleConfirm(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "y", "Y":
+		if m.busy {
+			return m, nil
+		}
 		switch m.confirm {
 		case confirmDelIface:
 			name := m.confirmArg
 			m.confirm = confirmNone
 			m.mode = modeList
-			return m, doDeleteIface(m.cfg.Client, name)
+			return m.startMutate(doDeleteIface(m.cfg.Client, name))
 		case confirmDelPeer:
 			iface, pub := m.confirmArg, m.confirmArg2
 			m.confirm = confirmNone
 			m.mode = modeList
-			return m, doDeletePeer(m.cfg.Client, iface, pub)
+			return m.startMutate(doDeletePeer(m.cfg.Client, iface, pub))
 		}
 	case "n", "N", "esc":
 		m.confirm = confirmNone
@@ -309,7 +349,7 @@ func (m rootModel) submitIfaceForm() (tea.Model, tea.Cmd) {
 			FwMark:         fw,
 			PublicEndpoint: v["public_endpoint"],
 		}
-		return m, doCreateIface(m.cfg.Client, req)
+		return m.startMutate(doCreateIface(m.cfg.Client, req))
 	}
 	// edit
 	port, err := parseIntField(v["port"])
@@ -332,7 +372,7 @@ func (m rootModel) submitIfaceForm() (tea.Model, tea.Cmd) {
 	if mtu > 0 {
 		req.MTU = &mtu
 	}
-	return m, doUpdateIface(m.cfg.Client, m.editName, req)
+	return m.startMutate(doUpdateIface(m.cfg.Client, m.editName, req))
 }
 
 func parseTableFields(table, tableID string) (mode string, id *int) {
@@ -387,7 +427,7 @@ func (m rootModel) submitPeerForm() (tea.Model, tea.Cmd) {
 			m.form.err = "public key required (or gen client key = y)"
 			return m, nil
 		}
-		return m, doCreatePeer(m.cfg.Client, iface, req)
+		return m.startMutate(doCreatePeer(m.cfg.Client, iface, req))
 	}
 	// edit
 	ka, _ := parseIntField(v["keepalive"])
@@ -405,7 +445,7 @@ func (m rootModel) submitPeerForm() (tea.Model, tea.Cmd) {
 		BandwidthRxBps:      &rx,
 		BandwidthTxBps:      &tx,
 	}
-	return m, doUpdatePeer(m.cfg.Client, m.editIface, m.editPub, req)
+	return m.startMutate(doUpdatePeer(m.cfg.Client, m.editIface, m.editPub, req))
 }
 
 func strPtr(s string) *string { return &s }
@@ -417,11 +457,11 @@ func (m rootModel) handleIfaceDetailKey(key string) (tea.Model, tea.Cmd) {
 		m.detailIf = nil
 	case "u":
 		if m.detailIf != nil {
-			return m, doIfaceUpDown(m.cfg.Client, m.detailIf.Name, true)
+			return m.startMutate(doIfaceUpDown(m.cfg.Client, m.detailIf.Name, true))
 		}
 	case "d":
 		if m.detailIf != nil {
-			return m, doIfaceUpDown(m.cfg.Client, m.detailIf.Name, false)
+			return m.startMutate(doIfaceUpDown(m.cfg.Client, m.detailIf.Name, false))
 		}
 	case "e":
 		if m.detailIf != nil {
@@ -429,7 +469,7 @@ func (m rootModel) handleIfaceDetailKey(key string) (tea.Model, tea.Cmd) {
 		}
 	case "x":
 		if m.detailIf != nil {
-			return m, doExportIface(m.cfg.Client, m.detailIf.Name)
+			return m.startMutate(doExportIface(m.cfg.Client, m.detailIf.Name))
 		}
 	case "D":
 		if m.detailIf != nil {
@@ -453,7 +493,7 @@ func (m rootModel) handlePeerDetailKey(key string) (tea.Model, tea.Cmd) {
 		m.detailPeer = nil
 	case "s":
 		if m.detailPeer != nil {
-			return m, doSuspend(m.cfg.Client, m.detailPeer.InterfaceName, m.detailPeer.PublicKey, !m.detailPeer.Suspended)
+			return m.startMutate(doSuspend(m.cfg.Client, m.detailPeer.InterfaceName, m.detailPeer.PublicKey, !m.detailPeer.Suspended))
 		}
 	case "e":
 		if m.detailPeer != nil {
@@ -461,7 +501,7 @@ func (m rootModel) handlePeerDetailKey(key string) (tea.Model, tea.Cmd) {
 		}
 	case "t":
 		if m.detailPeer != nil {
-			return m, doResetTraffic(m.cfg.Client, m.detailPeer.InterfaceName, m.detailPeer.PublicKey)
+			return m.startMutate(doResetTraffic(m.cfg.Client, m.detailPeer.InterfaceName, m.detailPeer.PublicKey))
 		}
 	case "c":
 		if m.detailPeer != nil {
@@ -512,9 +552,10 @@ func (m rootModel) handleListKey(key string) (tea.Model, tea.Cmd) {
 	case "pgup":
 		m.cursor = max(0, m.cursor-10)
 	case "r":
-		return m, fetchData(m.cfg.Client)
+		m, fetch := m.beginFetch()
+		return m, fetch
 	case "R":
-		return m, doReconcile(m.cfg.Client)
+		return m.startMutate(doReconcile(m.cfg.Client))
 	case "n":
 		if m.tab == tabInterfaces {
 			return m.openIfaceCreate()
@@ -539,11 +580,11 @@ func (m rootModel) handleListKey(key string) (tea.Model, tea.Cmd) {
 		}
 	case "u":
 		if m.tab == tabInterfaces && m.cursor < len(m.ifaces) {
-			return m, doIfaceUpDown(m.cfg.Client, m.ifaces[m.cursor].Name, true)
+			return m.startMutate(doIfaceUpDown(m.cfg.Client, m.ifaces[m.cursor].Name, true))
 		}
 	case "d":
 		if m.tab == tabInterfaces && m.cursor < len(m.ifaces) {
-			return m, doIfaceUpDown(m.cfg.Client, m.ifaces[m.cursor].Name, false)
+			return m.startMutate(doIfaceUpDown(m.cfg.Client, m.ifaces[m.cursor].Name, false))
 		}
 	case "e":
 		if m.tab == tabInterfaces && m.cursor < len(m.ifaces) {
@@ -571,12 +612,12 @@ func (m rootModel) handleListKey(key string) (tea.Model, tea.Cmd) {
 	case "s":
 		if m.tab == tabPeers && m.cursor < len(m.peers) {
 			p := m.peers[m.cursor]
-			return m, doSuspend(m.cfg.Client, p.InterfaceName, p.PublicKey, !p.Suspended)
+			return m.startMutate(doSuspend(m.cfg.Client, p.InterfaceName, p.PublicKey, !p.Suspended))
 		}
 	case "t":
 		if m.tab == tabPeers && m.cursor < len(m.peers) {
 			p := m.peers[m.cursor]
-			return m, doResetTraffic(m.cfg.Client, p.InterfaceName, p.PublicKey)
+			return m.startMutate(doResetTraffic(m.cfg.Client, p.InterfaceName, p.PublicKey))
 		}
 	case "c":
 		if m.tab == tabPeers && m.cursor < len(m.peers) {
@@ -585,7 +626,7 @@ func (m rootModel) handleListKey(key string) (tea.Model, tea.Cmd) {
 		}
 	case "x":
 		if m.tab == tabInterfaces && m.cursor < len(m.ifaces) {
-			return m, doExportIface(m.cfg.Client, m.ifaces[m.cursor].Name)
+			return m.startMutate(doExportIface(m.cfg.Client, m.ifaces[m.cursor].Name))
 		}
 	case "g":
 		if m.tab == tabKeys {

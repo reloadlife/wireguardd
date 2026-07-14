@@ -192,10 +192,23 @@ func (s *Server) handleUpdateInterface(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteInterface(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	if err := s.backend.RemoveInterface(r.Context(), name); err != nil {
-		s.log.Debug("remove interface backend", "err", err)
+	ctx := r.Context()
+	do := func() error {
+		if err := s.store.DeleteInterface(ctx, name); err != nil {
+			return err
+		}
+		if err := s.backend.RemoveInterface(ctx, name); err != nil {
+			s.log.Debug("remove interface backend", "err", err)
+		}
+		return nil
 	}
-	if err := s.store.DeleteInterface(r.Context(), name); err != nil {
+	var err error
+	if s.reconciler != nil {
+		err = s.reconciler.Exclusive(do)
+	} else {
+		err = do()
+	}
+	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "interface not found")
 			return
@@ -203,7 +216,7 @@ func (s *Server) handleDeleteInterface(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "delete_failed", err.Error())
 		return
 	}
-	_ = s.store.AddEvent(r.Context(), "info", "audit", name, "", "interface deleted", "{}")
+	_ = s.store.AddEvent(ctx, "info", "audit", name, "", "interface deleted", "{}")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -219,7 +232,6 @@ func (s *Server) handleInterfaceUp(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
 		return
 	}
-	_ = s.backend.SetUp(r.Context(), name, true)
 	if err := s.ForceReconcile(r.Context()); err != nil {
 		s.log.Error("reconcile after up", "err", err)
 	}
@@ -238,7 +250,6 @@ func (s *Server) handleInterfaceDown(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
 		return
 	}
-	_ = s.backend.SetUp(r.Context(), name, false)
 	if err := s.ForceReconcile(r.Context()); err != nil {
 		s.log.Error("reconcile after down", "err", err)
 	}
@@ -259,8 +270,17 @@ func (s *Server) handleInterfaceExport(w http.ResponseWriter, r *http.Request) {
 	}
 	content := renderIfaceConf(iface, peers)
 	path := filepath.Join(s.cfg.WireGuard.ConfDir, name+".conf")
-	if err := s.backend.ExportConf(r.Context(), path, content); err != nil {
-		writeError(w, http.StatusInternalServerError, "export_failed", err.Error())
+	export := func() error {
+		return s.backend.ExportConf(r.Context(), path, content)
+	}
+	var expErr error
+	if s.reconciler != nil {
+		expErr = s.reconciler.Exclusive(export)
+	} else {
+		expErr = export()
+	}
+	if expErr != nil {
+		writeError(w, http.StatusInternalServerError, "export_failed", expErr.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"path": path})
@@ -323,37 +343,19 @@ func (s *Server) handleInterfaceImport(w http.ResponseWriter, r *http.Request) {
 		PostDown:   cfg.Interface.PostDown,
 		Enabled:    true,
 	}
-	existing, err := s.store.GetInterfaceByName(r.Context(), name)
-	if err == nil {
-		iface.ID = existing.ID
-		if err := s.store.UpdateInterface(r.Context(), iface); err != nil {
-			writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
-			return
-		}
-	} else {
-		if err := s.store.CreateInterface(r.Context(), iface); err != nil {
-			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
-			return
-		}
-	}
-	// replace peers simply: delete all and recreate
-	oldPeers, _ := s.store.ListPeersByInterface(r.Context(), name)
-	for _, p := range oldPeers {
-		_ = s.store.DeletePeer(r.Context(), name, p.PublicKey)
-	}
+	peers := make([]db.Peer, 0, len(cfg.Peers))
 	for _, p := range cfg.Peers {
-		peer := &db.Peer{
-			InterfaceID:         iface.ID,
+		peers = append(peers, db.Peer{
 			PublicKey:           p.PublicKey,
 			PresharedKey:        p.PresharedKey,
 			AllowedIPs:          p.AllowedIPs,
 			Endpoint:            p.Endpoint,
 			PersistentKeepalive: p.PersistentKeepalive,
-		}
-		if err := s.store.CreatePeer(r.Context(), peer); err != nil {
-			writeError(w, http.StatusInternalServerError, "peer_import_failed", err.Error())
-			return
-		}
+		})
+	}
+	if err := s.store.ImportInterface(r.Context(), iface, peers); err != nil {
+		writeError(w, http.StatusInternalServerError, "import_failed", err.Error())
+		return
 	}
 	_ = s.ForceReconcile(r.Context())
 	// reload

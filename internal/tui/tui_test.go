@@ -96,3 +96,98 @@ func TestSplitJoinCSV(t *testing.T) {
 	require.Equal(t, []string{"a", "b"}, splitCSV("a, b"))
 	require.Equal(t, "a, b", joinCSV([]string{"a", "b"}))
 }
+
+func TestStaleDataMsgIgnored(t *testing.T) {
+	m := newRootModel(Config{Endpoint: "http://localhost"})
+	m.fetchGen = 2
+	m.ifaces = []pkgapi.Interface{{Name: "keep"}}
+	nm, _ := m.Update(dataMsg{
+		gen:    1,
+		ifaces: []pkgapi.Interface{{Name: "stale"}},
+	})
+	m = nm.(rootModel)
+	require.Equal(t, "keep", m.ifaces[0].Name)
+	require.Equal(t, uint64(2), m.fetchGen)
+}
+
+func TestCurrentDataMsgApplied(t *testing.T) {
+	m := newRootModel(Config{Endpoint: "http://localhost"})
+	m.fetchGen = 3
+	nm, _ := m.Update(dataMsg{
+		gen:    3,
+		ifaces: []pkgapi.Interface{{Name: "fresh"}},
+	})
+	m = nm.(rootModel)
+	require.Equal(t, "fresh", m.ifaces[0].Name)
+	require.Equal(t, "ok", m.status)
+}
+
+func TestBusyIgnoresMutate(t *testing.T) {
+	m := newRootModel(Config{Endpoint: "http://localhost"})
+	m.ifaces = []pkgapi.Interface{{Name: "wg0"}}
+	m.tab = tabInterfaces
+	m.cursor = 0
+	m.busy = true
+	nm, cmd := m.handleListKey("u")
+	m = nm.(rootModel)
+	require.True(t, m.busy)
+	require.Nil(t, cmd)
+}
+
+func TestStartMutateSetsBusy(t *testing.T) {
+	m := newRootModel(Config{Endpoint: "http://localhost"})
+	nm, cmd := m.startMutate(func() tea.Msg { return actionDoneMsg{flash: "ok", refresh: false} })
+	m = nm.(rootModel)
+	require.True(t, m.busy)
+	require.NotNil(t, cmd)
+	// second mutate ignored
+	nm, cmd2 := m.startMutate(func() tea.Msg { return actionDoneMsg{} })
+	m = nm.(rootModel)
+	require.True(t, m.busy)
+	require.Nil(t, cmd2)
+}
+
+func TestActionDoneClearsBusy(t *testing.T) {
+	m := newRootModel(Config{Endpoint: "http://localhost"})
+	m.busy = true
+	nm, _ := m.Update(actionDoneMsg{err: nil, flash: "done", refresh: false})
+	m = nm.(rootModel)
+	require.False(t, m.busy)
+	require.Equal(t, "done", m.flash)
+}
+
+func TestActionDoneErrorClearsBusy(t *testing.T) {
+	m := newRootModel(Config{Endpoint: "http://localhost"})
+	m.busy = true
+	nm, _ := m.Update(actionDoneMsg{err: errString("boom")})
+	m = nm.(rootModel)
+	require.False(t, m.busy)
+	require.Equal(t, "boom", m.err)
+}
+
+type errString string
+
+func (e errString) Error() string { return string(e) }
+
+func TestFlashClearOnlyMatchingID(t *testing.T) {
+	m := newRootModel(Config{Endpoint: "http://localhost"})
+	m.flash = "hello"
+	m.flashID = 5
+	nm, _ := m.Update(flashClearMsg{id: 4})
+	m = nm.(rootModel)
+	require.Equal(t, "hello", m.flash)
+	nm, _ = m.Update(flashClearMsg{id: 5})
+	m = nm.(rootModel)
+	require.Equal(t, "", m.flash)
+}
+
+func TestBeginFetchIncrementsGen(t *testing.T) {
+	m := newRootModel(Config{Endpoint: "http://localhost"})
+	require.Equal(t, uint64(0), m.fetchGen)
+	m, cmd := m.beginFetch()
+	require.Equal(t, uint64(1), m.fetchGen)
+	require.NotNil(t, cmd)
+	m, cmd = m.beginFetch()
+	require.Equal(t, uint64(2), m.fetchGen)
+	require.NotNil(t, cmd)
+}

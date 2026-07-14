@@ -70,10 +70,12 @@ func (c *Cache) SetPeer(s PeerStats) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	cp := s
+	cp.AllowedIPs = append([]string(nil), s.AllowedIPs...)
 	c.peers[peerKey(s.Interface, s.PublicKey)] = &cp
 }
 
 // Snapshot returns copies of all stats.
+// Peer AllowedIPs slices are deep-copied so callers cannot race the cache.
 func (c *Cache) Snapshot() (map[string]IfaceStats, map[string]PeerStats) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -83,7 +85,9 @@ func (c *Cache) Snapshot() (map[string]IfaceStats, map[string]PeerStats) {
 	}
 	peers := make(map[string]PeerStats, len(c.peers))
 	for k, v := range c.peers {
-		peers[k] = *v
+		cp := *v
+		cp.AllowedIPs = append([]string(nil), v.AllowedIPs...)
+		peers[k] = cp
 	}
 	return ifaces, peers
 }

@@ -71,6 +71,9 @@ func (s *routeState) get(name string) *ifaceRouteState {
 
 // SyncRoutes installs/removes AllowedIP routes and policy rules for an interface.
 func (b *HostBackend) SyncRoutes(ctx context.Context, desired DesiredInterface) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	if b.routes == nil {
 		b.routes = newRouteState()
 	}

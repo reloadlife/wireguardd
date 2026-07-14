@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"golang.zx2c4.com/wireguard/wgctrl"
@@ -14,6 +15,7 @@ import (
 
 // HostBackend drives the real host via wgctrl + ip/wg/tc.
 type HostBackend struct {
+	mu               sync.Mutex
 	client           *wgctrl.Client
 	runner           Runner
 	confDir          string
@@ -67,11 +69,17 @@ func NewHostBackend(opts HostOptions) (*HostBackend, error) {
 
 // Close implements Backend.
 func (b *HostBackend) Close() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	return b.client.Close()
 }
 
 // Devices implements Backend.
 func (b *HostBackend) Devices(ctx context.Context) ([]Device, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	devs, err := b.client.Devices()
 	if err != nil {
 		return nil, err
@@ -85,6 +93,9 @@ func (b *HostBackend) Devices(ctx context.Context) ([]Device, error) {
 
 // Device implements Backend.
 func (b *HostBackend) Device(ctx context.Context, name string) (*Device, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	d, err := b.client.Device(name)
 	if err != nil {
 		return nil, err
@@ -128,6 +139,9 @@ func convertDevice(d *wgtypes.Device) Device {
 
 // EnsureInterface implements Backend.
 func (b *HostBackend) EnsureInterface(ctx context.Context, desired DesiredInterface) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	if err := b.createLink(ctx, desired.Name); err != nil {
 		return err
 	}
@@ -166,6 +180,9 @@ func (b *HostBackend) EnsureInterface(ctx context.Context, desired DesiredInterf
 
 // RemoveInterface implements Backend.
 func (b *HostBackend) RemoveInterface(ctx context.Context, name string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	b.clearInterfaceDNS(ctx, name)
 	b.clearInterfaceTC(ctx, name)
 	b.clearInterfaceRoutes(ctx, name)
@@ -174,12 +191,18 @@ func (b *HostBackend) RemoveInterface(ctx context.Context, name string) error {
 
 // SetUp implements Backend.
 func (b *HostBackend) SetUp(ctx context.Context, name string, up bool) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	return b.setLinkUp(ctx, name, up)
 }
 
 // ApplyPeers implements Backend.
 // Diff-applies peers without ReplacePeers so kernel counters/handshakes are preserved.
 func (b *HostBackend) ApplyPeers(ctx context.Context, iface string, peers []DesiredPeer) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	desired := make(map[string]DesiredPeer, len(peers))
 	cfgs := make([]wgtypes.PeerConfig, 0, len(peers)+4)
 	for _, p := range peers {
@@ -261,12 +284,18 @@ func parseIPNet(a string) (*net.IPNet, error) {
 
 // ApplySuspendRoutes implements Backend.
 func (b *HostBackend) ApplySuspendRoutes(ctx context.Context, iface string, peer DesiredPeer, suspend bool) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	_ = iface
 	return b.applySuspendRoutes(ctx, peer, suspend)
 }
 
 // ExportConf implements Backend.
 func (b *HostBackend) ExportConf(ctx context.Context, path string, content string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -279,6 +308,9 @@ func (b *HostBackend) ExportConf(ctx context.Context, path string, content strin
 
 // RunHook implements Backend.
 func (b *HostBackend) RunHook(ctx context.Context, hook string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	if !b.allowHooks || hook == "" {
 		return nil
 	}

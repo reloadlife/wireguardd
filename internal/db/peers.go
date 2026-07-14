@@ -88,6 +88,7 @@ ORDER BY i.name, p.name, p.public_key`)
 }
 
 // UpdatePeer updates peer configuration and policy.
+// Runtime stats (handshake, endpoint, counters, rates) are owned by UpdatePeerStats.
 func (s *Store) UpdatePeer(ctx context.Context, p *Peer) error {
 	now := nowRFC3339()
 	suspended := 0
@@ -98,14 +99,11 @@ func (s *Store) UpdatePeer(ctx context.Context, p *Peer) error {
 UPDATE peers SET
   preshared_key=?, client_private_key=?, name=?, notes=?, allowed_ips=?, assigned_ips=?, endpoint=?,
   persistent_keepalive=?, suspended=?, traffic_limit_bytes=?, bandwidth_rx_bps=?,
-  bandwidth_tx_bps=?, rx_bytes_offset=?, tx_bytes_offset=?, first_handshake_at=?,
-  last_handshake_at=?, connected_since=?, last_endpoint=?, last_rx_bytes=?, last_tx_bytes=?,
-  last_rx_bps=?, last_tx_bps=?, tags=?, updated_at=?
+  bandwidth_tx_bps=?, rx_bytes_offset=?, tx_bytes_offset=?, tags=?, updated_at=?
 WHERE id=?`,
 		p.PresharedKey, p.ClientPrivateKey, p.Name, p.Notes, encodeJSONList(p.AllowedIPs), encodeJSONList(p.AssignedIPs),
 		p.Endpoint, p.PersistentKeepalive, suspended, p.TrafficLimitBytes, p.BandwidthRxBps,
-		p.BandwidthTxBps, p.RxBytesOffset, p.TxBytesOffset, p.FirstHandshakeAt, p.LastHandshakeAt,
-		p.ConnectedSince, p.LastEndpoint, p.LastRxBytes, p.LastTxBytes, p.LastRxBps, p.LastTxBps,
+		p.BandwidthTxBps, p.RxBytesOffset, p.TxBytesOffset,
 		encodeJSONList(p.Tags), now, p.ID,
 	)
 	if err != nil {

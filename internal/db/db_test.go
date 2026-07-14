@@ -75,7 +75,19 @@ func TestInterfaceAndPeerCRUD(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, ev, 1)
 
-	require.NoError(t, s.DeletePeer(ctx, "wg0", pk.PublicKey))
+	// Atomic import replaces peer set in one transaction.
+	pk2, err := crypto.GenerateKeyPair()
+	require.NoError(t, err)
+	require.NoError(t, s.ImportInterface(ctx, iface, []Peer{
+		{PublicKey: pk2.PublicKey, Name: "bob", AllowedIPs: []string{"10.0.0.3/32"}},
+	}))
+	peers, err = s.ListPeersByInterface(ctx, "wg0")
+	require.NoError(t, err)
+	require.Len(t, peers, 1)
+	require.Equal(t, "bob", peers[0].Name)
+	require.Equal(t, pk2.PublicKey, peers[0].PublicKey)
+
+	require.NoError(t, s.DeletePeer(ctx, "wg0", pk2.PublicKey))
 	require.NoError(t, s.DeleteInterface(ctx, "wg0"))
 	_, err = s.GetInterfaceByName(ctx, "wg0")
 	require.ErrorIs(t, err, ErrNotFound)
