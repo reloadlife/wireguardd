@@ -82,7 +82,7 @@ func setDaemonDefaults(v *viper.Viper) {
 	v.SetDefault("listen.metrics", "127.0.0.1:9091")
 	v.SetDefault("snmp.enabled", false)
 	v.SetDefault("snmp.listen", "127.0.0.1:1161")
-	v.SetDefault("snmp.community", "public")
+	v.SetDefault("snmp.community", "change-me-snmp")
 	v.SetDefault("snmp.enterprise_oid", "1.3.6.1.4.1.66666.1")
 	v.SetDefault("db.path", "wireguardd.db")
 	v.SetDefault("auth.token", "change-me")

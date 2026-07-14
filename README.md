@@ -120,9 +120,31 @@ Bearer token required on `/v1/*`. OpenAPI: [`api/openapi.yaml`](api/openapi.yaml
 
 Scrape `http://host:9091/metrics`. Metrics include per-interface and per-peer counters, rates, handshake age, connected, suspended, and limits. See `internal/metrics/prometheus.go`.
 
-## SNMP
+## SNMP (full SNMPv2c agent)
 
-SNMPv2c on UDP (default `:1161`). Community from config. OID base `1.3.6.1.4.1.66666.1` (placeholder PEN). MIB sketch: `deploy/mibs/WIREGUARDD-MIB.txt`.
+Enable in config (`snmp.enabled: true`). Default listen `127.0.0.1:1161`, community from config.
+
+| Feature | Support |
+|---------|---------|
+| SNMPv2c | GET, GETNEXT, GETBULK |
+| SET | rejected (`notWritable`) — agent is read-only |
+| Types | Integer, OctetString, OID, Counter64, Gauge32, TimeTicks |
+| Exceptions | noSuchObject, noSuchInstance, endOfMibView |
+| System group | `1.3.6.1.2.1.1.*` (sysDescr, sysUpTime, …) |
+| Enterprise MIB | `1.3.6.1.4.1.66666.1` (placeholder PEN) |
+
+```bash
+# walk enterprise tree
+snmpwalk -v2c -c public 127.0.0.1:1161 1.3.6.1.4.1.66666.1
+
+# interface name row 1
+snmpget -v2c -c public 127.0.0.1:1161 1.3.6.1.4.1.66666.1.2.1.2.1
+
+# bulk
+snmpbulkwalk -v2c -c public 127.0.0.1:1161 1.3.6.1.4.1.66666.1.3
+```
+
+Full MIB: [`deploy/mibs/WIREGUARDD-MIB.txt`](deploy/mibs/WIREGUARDD-MIB.txt).
 
 ## Install
 

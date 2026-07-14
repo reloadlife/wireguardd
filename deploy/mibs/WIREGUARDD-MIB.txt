@@ -1,54 +1,306 @@
 WIREGUARDD-MIB DEFINITIONS ::= BEGIN
 
 IMPORTS
-    MODULE-IDENTITY, OBJECT-TYPE, Integer32, Counter64, Gauge32, enterprises
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, Counter64, Gauge32,
+    TimeTicks, enterprises
         FROM SNMPv2-SMI
     DisplayString
-        FROM SNMPv2-TC;
+        FROM SNMPv2-TC
+    OBJECT-GROUP, MODULE-COMPLIANCE
+        FROM SNMPv2-CONF;
 
--- Placeholder private enterprise number 66666 — replace with a registered PEN.
+-- Placeholder private enterprise number 66666.
+-- Replace with a registered IANA PEN for production deployments.
+
 wireguardd MODULE-IDENTITY
     LAST-UPDATED "202607140000Z"
     ORGANIZATION "reloadlife"
     CONTACT-INFO "https://github.com/reloadlife/wireguardd"
-    DESCRIPTION "WireGuard management daemon metrics"
+    DESCRIPTION
+        "SNMPv2c MIB for the wireguardd WireGuard management daemon.
+         Provides interface and peer operational statistics (bytes, rates,
+         handshake, suspend, limits)."
+    REVISION "202607140000Z"
+    DESCRIPTION "Full SNMPv2c agent: scalars + interface/peer tables."
     ::= { enterprises 66666 1 }
 
+-- ============================================================
+-- Scalars
+-- ============================================================
+
+wgScalars OBJECT IDENTIFIER ::= { wireguardd 1 }
+
+wgInterfaceCount OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of managed WireGuard interfaces."
+    ::= { wgScalars 1 }
+
+wgPeerCount OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of managed peers across all interfaces."
+    ::= { wgScalars 2 }
+
+wgAgentUptime OBJECT-TYPE
+    SYNTAX      TimeTicks
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Time since wireguardd SNMP agent started (hundredths of a second)."
+    ::= { wgScalars 3 }
+
+-- ============================================================
+-- Interface table  (wireguardd.2.1.column.rowIndex)
+-- ============================================================
+
 wgInterfaceTable OBJECT-TYPE
-    SYNTAX SEQUENCE OF WgInterfaceEntry
-    MAX-ACCESS not-accessible
-    STATUS current
-    DESCRIPTION "WireGuard interfaces"
-    ::= { wireguardd 1 }
-
--- Columns (conceptual):
--- 1 name DisplayString
--- 2 up Integer32
--- 3 listenPort Integer32
--- 4 peerCount Integer32
--- 5 rxBytes Counter64
--- 6 txBytes Counter64
--- 7 rxBps Gauge32
--- 8 txBps Gauge32
-
-wgPeerTable OBJECT-TYPE
-    SYNTAX SEQUENCE OF WgPeerEntry
-    MAX-ACCESS not-accessible
-    STATUS current
-    DESCRIPTION "WireGuard peers"
+    SYNTAX      SEQUENCE OF WgInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "WireGuard interfaces managed by wireguardd."
     ::= { wireguardd 2 }
 
--- Columns (conceptual):
--- 1 interface DisplayString
--- 2 publicKey DisplayString
--- 3 name DisplayString
--- 4 endpoint DisplayString
--- 5 connected Integer32
--- 6 suspended Integer32
--- 7 lastHandshake Integer32
--- 8 rxBytes Counter64
--- 9 txBytes Counter64
--- 10 rxBps Gauge32
--- 11 txBps Gauge32
+wgInterfaceEntry OBJECT-TYPE
+    SYNTAX      WgInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "A single WireGuard interface."
+    INDEX       { wgIfIndex }
+    ::= { wgInterfaceTable 1 }
+
+WgInterfaceEntry ::= SEQUENCE {
+    wgIfIndex       Integer32,
+    wgIfName        DisplayString,
+    wgIfPublicKey   DisplayString,
+    wgIfUp          Integer32,
+    wgIfListenPort  Integer32,
+    wgIfPeerCount   Integer32,
+    wgIfRxBytes     Counter64,
+    wgIfTxBytes     Counter64,
+    wgIfRxBps       Gauge32,
+    wgIfTxBps       Gauge32
+}
+
+wgIfIndex OBJECT-TYPE
+    SYNTAX      Integer32 (1..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Interface table index."
+    ::= { wgInterfaceEntry 1 }
+
+wgIfName OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (1..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Interface name (e.g. wg0)."
+    ::= { wgInterfaceEntry 2 }
+
+wgIfPublicKey OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Interface public key (base64)."
+    ::= { wgInterfaceEntry 3 }
+
+wgIfUp OBJECT-TYPE
+    SYNTAX      Integer32 (0..1)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "1 if interface is up, else 0."
+    ::= { wgInterfaceEntry 4 }
+
+wgIfListenPort OBJECT-TYPE
+    SYNTAX      Integer32 (0..65535)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "UDP listen port."
+    ::= { wgInterfaceEntry 5 }
+
+wgIfPeerCount OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of peers on this interface."
+    ::= { wgInterfaceEntry 6 }
+
+wgIfRxBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Cumulative received bytes (sum of peers, soft-reset aware)."
+    ::= { wgInterfaceEntry 7 }
+
+wgIfTxBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Cumulative transmitted bytes."
+    ::= { wgInterfaceEntry 8 }
+
+wgIfRxBps OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Receive rate in bytes/second."
+    ::= { wgInterfaceEntry 9 }
+
+wgIfTxBps OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Transmit rate in bytes/second."
+    ::= { wgInterfaceEntry 10 }
+
+-- ============================================================
+-- Peer table  (wireguardd.3.1.column.rowIndex)
+-- ============================================================
+
+wgPeerTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF WgPeerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "WireGuard peers managed by wireguardd."
+    ::= { wireguardd 3 }
+
+wgPeerEntry OBJECT-TYPE
+    SYNTAX      WgPeerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "A single WireGuard peer."
+    INDEX       { wgPeerIndex }
+    ::= { wgPeerTable 1 }
+
+WgPeerEntry ::= SEQUENCE {
+    wgPeerIndex            Integer32,
+    wgPeerInterface        DisplayString,
+    wgPeerPublicKey        DisplayString,
+    wgPeerName             DisplayString,
+    wgPeerEndpoint         DisplayString,
+    wgPeerConnected        Integer32,
+    wgPeerSuspended        Integer32,
+    wgPeerLastHandshake    Integer32,
+    wgPeerConnectedSince   Integer32,
+    wgPeerRxBytes          Counter64,
+    wgPeerTxBytes          Counter64,
+    wgPeerRxBps            Gauge32,
+    wgPeerTxBps            Gauge32,
+    wgPeerTrafficLimit     Gauge32,
+    wgPeerBandwidthRxLimit Gauge32,
+    wgPeerBandwidthTxLimit Gauge32
+}
+
+wgPeerIndex OBJECT-TYPE
+    SYNTAX      Integer32 (1..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Peer table index."
+    ::= { wgPeerEntry 1 }
+
+wgPeerInterface OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Parent interface name."
+    ::= { wgPeerEntry 2 }
+
+wgPeerPublicKey OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Peer public key (base64)."
+    ::= { wgPeerEntry 3 }
+
+wgPeerName OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Friendly peer name."
+    ::= { wgPeerEntry 4 }
+
+wgPeerEndpoint OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Last known endpoint host:port."
+    ::= { wgPeerEntry 5 }
+
+wgPeerConnected OBJECT-TYPE
+    SYNTAX      Integer32 (0..1)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "1 if recent handshake within configured threshold."
+    ::= { wgPeerEntry 6 }
+
+wgPeerSuspended OBJECT-TYPE
+    SYNTAX      Integer32 (0..1)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "1 if peer is suspended."
+    ::= { wgPeerEntry 7 }
+
+wgPeerLastHandshake OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Unix timestamp of last handshake (0 if never)."
+    ::= { wgPeerEntry 8 }
+
+wgPeerConnectedSince OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Unix timestamp when current session considered connected."
+    ::= { wgPeerEntry 9 }
+
+wgPeerRxBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Received bytes (soft-reset aware)."
+    ::= { wgPeerEntry 10 }
+
+wgPeerTxBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Transmitted bytes (soft-reset aware)."
+    ::= { wgPeerEntry 11 }
+
+wgPeerRxBps OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Receive rate bytes/second."
+    ::= { wgPeerEntry 12 }
+
+wgPeerTxBps OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Transmit rate bytes/second."
+    ::= { wgPeerEntry 13 }
+
+wgPeerTrafficLimit OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Traffic quota in bytes (0 = unlimited). May truncate large values."
+    ::= { wgPeerEntry 14 }
+
+wgPeerBandwidthRxLimit OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Configured RX bandwidth limit in bits/second (0 = unlimited)."
+    ::= { wgPeerEntry 15 }
+
+wgPeerBandwidthTxLimit OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Configured TX bandwidth limit in bits/second (0 = unlimited)."
+    ::= { wgPeerEntry 16 }
 
 END

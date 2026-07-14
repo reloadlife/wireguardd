@@ -5,9 +5,10 @@ listen:
 
 snmp:
   enabled: true
-  listen: "0.0.0.0:1161"
-  community: "public"
-  enterprise_oid: "1.3.6.1.4.1.66666.1"
+  # Full SNMPv2c: GET / GETNEXT / GETBULK (SET → notWritable)
+  listen: "127.0.0.1:1161"   # bind 0.0.0.0:161 only behind firewall
+  community: "change-me-snmp"
+  enterprise_oid: "1.3.6.1.4.1.66666.1"  # placeholder PEN
 
 db:
   path: "/var/lib/wireguardd/state.db"

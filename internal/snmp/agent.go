@@ -1,51 +1,73 @@
 package snmp
 
 import (
-	"encoding/asn1"
-	"encoding/binary"
 	"fmt"
 	"log/slog"
 	"net"
-	"sort"
 	"sync"
 	"time"
 
 	"github.com/reloadlife/wireguardd/internal/stats"
 )
 
-// Agent is a minimal SNMPv2c agent exposing interface/peer stats.
+// Agent is a full SNMPv2c agent (GET, GETNEXT, GETBULK; SET → notWritable).
 type Agent struct {
 	listen    string
 	community string
 	baseOID   OID
 	cache     *stats.Cache
 	log       *slog.Logger
+	started   time.Time
+	readOnly  bool
 
 	mu   sync.Mutex
 	conn *net.UDPConn
 }
 
-// NewAgent creates an SNMP agent.
+// Options configures the agent.
+type Options struct {
+	Listen        string
+	Community     string
+	EnterpriseOID string
+	ReadOnly      bool // default true
+}
+
+// NewAgent creates an SNMPv2c agent.
 func NewAgent(listen, community, enterpriseOID string, cache *stats.Cache, log *slog.Logger) *Agent {
-	if community == "" {
-		community = "public"
+	return NewAgentOpts(Options{
+		Listen:        listen,
+		Community:     community,
+		EnterpriseOID: enterpriseOID,
+		ReadOnly:      true,
+	}, cache, log)
+}
+
+// NewAgentOpts creates an agent with full options.
+func NewAgentOpts(opts Options, cache *stats.Cache, log *slog.Logger) *Agent {
+	if opts.Community == "" {
+		opts.Community = "public"
 	}
-	if enterpriseOID == "" {
-		enterpriseOID = "1.3.6.1.4.1.66666.1"
+	if opts.EnterpriseOID == "" {
+		opts.EnterpriseOID = "1.3.6.1.4.1.66666.1"
+	}
+	if opts.Listen == "" {
+		opts.Listen = "127.0.0.1:1161"
 	}
 	if log == nil {
 		log = slog.Default()
 	}
 	return &Agent{
-		listen:    listen,
-		community: community,
-		baseOID:   parseOID(enterpriseOID),
+		listen:    opts.Listen,
+		community: opts.Community,
+		baseOID:   parseOID(opts.EnterpriseOID),
 		cache:     cache,
 		log:       log,
+		started:   time.Now(),
+		readOnly:  opts.ReadOnly,
 	}
 }
 
-// Start listens and serves SNMP until Close.
+// Start listens and serves until Close.
 func (a *Agent) Start() error {
 	addr, err := net.ResolveUDPAddr("udp", a.listen)
 	if err != nil {
@@ -58,9 +80,19 @@ func (a *Agent) Start() error {
 	a.mu.Lock()
 	a.conn = conn
 	a.mu.Unlock()
-	a.log.Info("snmp agent listening", "addr", a.listen)
+	a.log.Info("snmp agent listening", "addr", conn.LocalAddr().String(), "community", a.community, "version", "2c")
 	go a.loop()
 	return nil
+}
+
+// Addr returns the bound address (after Start).
+func (a *Agent) Addr() net.Addr {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.conn == nil {
+		return nil
+	}
+	return a.conn.LocalAddr()
 }
 
 // Close stops the agent.
@@ -68,7 +100,9 @@ func (a *Agent) Close() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.conn != nil {
-		return a.conn.Close()
+		err := a.conn.Close()
+		a.conn = nil
+		return err
 	}
 	return nil
 }
@@ -88,314 +122,173 @@ func (a *Agent) loop() {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				continue
 			}
-			// closed
 			return
 		}
-		resp := a.handle(buf[:n])
-		if resp != nil {
+		resp := a.HandlePacket(buf[:n])
+		if len(resp) > 0 {
 			_, _ = conn.WriteToUDP(resp, remote)
 		}
 	}
 }
 
-// Variable is a simple OID binding.
-type Variable struct {
-	OID  OID
-	Type byte // 0x02 integer, 0x04 octet, 0x41 counter32, 0x42 gauge32, 0x46 counter64
-	Int  int64
-	Str  string
-}
+// HandlePacket processes one SNMPv2c request and returns a response datagram (or nil).
+// Exported for unit tests.
+func (a *Agent) HandlePacket(req []byte) []byte {
+	msg, err := decodeMessage(req)
+	if err != nil {
+		a.log.Debug("snmp decode error", "err", err)
+		return nil
+	}
+	// only v2c (version=1) and v1 (version=0) community messages
+	if msg.Version != 0 && msg.Version != 1 {
+		return nil
+	}
+	if msg.Community != a.community {
+		a.log.Debug("snmp bad community")
+		return nil
+	}
 
-func (a *Agent) snapshotVars() []Variable {
-	ifaces, peers := a.cache.Snapshot()
-	var vars []Variable
-	// base.1.1.ifaceIndex.* interface table
-	// base.1 = interfaces, base.2 = peers
-	ifaceNames := make([]string, 0, len(ifaces))
-	for n := range ifaces {
-		ifaceNames = append(ifaceNames, n)
-	}
-	sort.Strings(ifaceNames)
-	for i, name := range ifaceNames {
-		idx := uint(i + 1)
-		st := ifaces[name]
-		up := int64(0)
-		if st.Up {
-			up = 1
+	mib := BuildMIB(a.baseOID, a.cache, a.started)
+	var outPDU PDU
+	outPDU.RequestID = msg.PDU.RequestID
+	outPDU.Type = PDUResponse
+
+	switch msg.PDU.Type {
+	case PDUGet:
+		outPDU.Bindings = a.doGet(mib, msg.PDU.Bindings)
+	case PDUGetNext:
+		outPDU.Bindings = a.doGetNext(mib, msg.PDU.Bindings)
+	case PDUGetBulk:
+		outPDU.Bindings = a.doGetBulk(mib, msg.PDU)
+	case PDUSet:
+		outPDU.ErrorStatus = ErrNotWritable
+		outPDU.ErrorIndex = 1
+		// echo bindings with no change
+		outPDU.Bindings = make([]VarBind, len(msg.PDU.Bindings))
+		for i, b := range msg.PDU.Bindings {
+			outPDU.Bindings[i] = VarBind{Name: b.Name, Value: b.Value}
 		}
-		vars = append(vars,
-			Variable{OID: a.baseOID.Child(1, 1, idx), Type: 0x04, Str: name},
-			Variable{OID: a.baseOID.Child(1, 2, idx), Type: 0x02, Int: up},
-			Variable{OID: a.baseOID.Child(1, 3, idx), Type: 0x02, Int: int64(st.ListenPort)},
-			Variable{OID: a.baseOID.Child(1, 4, idx), Type: 0x02, Int: int64(st.PeerCount)},
-			Variable{OID: a.baseOID.Child(1, 5, idx), Type: 0x46, Int: st.RxBytes},
-			Variable{OID: a.baseOID.Child(1, 6, idx), Type: 0x46, Int: st.TxBytes},
-			Variable{OID: a.baseOID.Child(1, 7, idx), Type: 0x42, Int: int64(st.RxBps)},
-			Variable{OID: a.baseOID.Child(1, 8, idx), Type: 0x42, Int: int64(st.TxBps)},
-		)
-	}
-	// peers: sort keys
-	keys := make([]string, 0, len(peers))
-	for k := range peers {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for i, k := range keys {
-		idx := uint(i + 1)
-		p := peers[k]
-		conn := int64(0)
-		if p.Connected {
-			conn = 1
+		if len(outPDU.Bindings) == 0 {
+			outPDU.ErrorIndex = 0
 		}
-		susp := int64(0)
-		if p.Suspended {
-			susp = 1
-		}
-		hs := int64(0)
-		if !p.LastHandshake.IsZero() {
-			hs = p.LastHandshake.Unix()
-		}
-		vars = append(vars,
-			Variable{OID: a.baseOID.Child(2, 1, idx), Type: 0x04, Str: p.Interface},
-			Variable{OID: a.baseOID.Child(2, 2, idx), Type: 0x04, Str: p.PublicKey},
-			Variable{OID: a.baseOID.Child(2, 3, idx), Type: 0x04, Str: p.Name},
-			Variable{OID: a.baseOID.Child(2, 4, idx), Type: 0x04, Str: p.Endpoint},
-			Variable{OID: a.baseOID.Child(2, 5, idx), Type: 0x02, Int: conn},
-			Variable{OID: a.baseOID.Child(2, 6, idx), Type: 0x02, Int: susp},
-			Variable{OID: a.baseOID.Child(2, 7, idx), Type: 0x02, Int: hs},
-			Variable{OID: a.baseOID.Child(2, 8, idx), Type: 0x46, Int: p.RxBytes},
-			Variable{OID: a.baseOID.Child(2, 9, idx), Type: 0x46, Int: p.TxBytes},
-			Variable{OID: a.baseOID.Child(2, 10, idx), Type: 0x42, Int: int64(p.RxBps)},
-			Variable{OID: a.baseOID.Child(2, 11, idx), Type: 0x42, Int: int64(p.TxBps)},
-		)
+	default:
+		// unsupported → genErr
+		outPDU.ErrorStatus = ErrGenErr
+		outPDU.Bindings = msg.PDU.Bindings
 	}
-	sort.Slice(vars, func(i, j int) bool {
-		return vars[i].OID.Compare(vars[j].OID) < 0
+
+	// cap response size roughly (UDP safety)
+	resp := encodeMessage(&Message{
+		Version:   msg.Version,
+		Community: a.community,
+		PDU:       outPDU,
 	})
-	return vars
+	if len(resp) > 64000 {
+		outPDU.ErrorStatus = ErrTooBig
+		outPDU.ErrorIndex = 0
+		outPDU.Bindings = nil
+		resp = encodeMessage(&Message{Version: msg.Version, Community: a.community, PDU: outPDU})
+	}
+	return resp
 }
 
-// handle parses a minimal SNMPv2c Get/GetNext and responds.
-// This is intentionally simple and may not support all PDU types.
-func (a *Agent) handle(req []byte) []byte {
-	// Very small SNMP decode: find community string and request type loosely.
-	// For robustness in production, use a full library; here we implement enough for snmpwalk basics.
-	if len(req) < 20 {
-		return nil
-	}
-	// Verify community appears as octet string
-	if !containsCommunity(req, a.community) {
-		return nil
-	}
-	vars := a.snapshotVars()
-	// Build a simple response with sysDescr-like first var or all get-next from base
-	// Detect GETNEXT (0xA1) vs GET (0xA0)
-	isNext := false
+func (a *Agent) doGet(mib *MIB, req []VarBind) []VarBind {
+	out := make([]VarBind, 0, len(req))
 	for _, b := range req {
-		if b == 0xA1 {
-			isNext = true
-			break
+		if v, ok := mib.Get(b.Name); ok {
+			out = append(out, VarBind{Name: v.OID, Value: v.Value})
+			continue
 		}
-		if b == 0xA0 {
-			break
+		// noSuchObject if nothing under prefix, else noSuchInstance
+		if a.hasPrefix(mib, b.Name) {
+			out = append(out, VarBind{Name: b.Name, Value: Value{Type: tagNoSuchInstance}})
+		} else {
+			out = append(out, VarBind{Name: b.Name, Value: Value{Type: tagNoSuchObject}})
 		}
 	}
-	requested := extractOIDs(req)
-	var bindings []Variable
-	if len(requested) == 0 {
-		if len(vars) > 0 {
-			bindings = []Variable{vars[0]}
+	return out
+}
+
+func (a *Agent) hasPrefix(mib *MIB, oid OID) bool {
+	for _, v := range mib.vars {
+		if oid.IsPrefix(v.OID) {
+			return true
 		}
-	} else {
-		for _, roid := range requested {
-			if isNext {
-				for _, v := range vars {
-					if v.OID.Compare(roid) > 0 {
-						bindings = append(bindings, v)
-						break
-					}
-				}
+	}
+	return false
+}
+
+func (a *Agent) doGetNext(mib *MIB, req []VarBind) []VarBind {
+	out := make([]VarBind, 0, len(req))
+	for _, b := range req {
+		if v, ok := mib.GetNext(b.Name); ok {
+			out = append(out, VarBind{Name: v.OID, Value: v.Value})
+		} else {
+			out = append(out, VarBind{Name: b.Name, Value: Value{Type: tagEndOfMibView}})
+		}
+	}
+	return out
+}
+
+func (a *Agent) doGetBulk(mib *MIB, pdu PDU) []VarBind {
+	nonRep := pdu.NonRepeaters
+	maxRep := pdu.MaxRepetitions
+	if nonRep < 0 {
+		nonRep = 0
+	}
+	if maxRep < 0 {
+		maxRep = 0
+	}
+	if maxRep > 100 {
+		maxRep = 100 // safety
+	}
+	if nonRep > len(pdu.Bindings) {
+		nonRep = len(pdu.Bindings)
+	}
+
+	var out []VarBind
+	// non-repeaters: one GetNext each
+	for i := 0; i < nonRep; i++ {
+		b := pdu.Bindings[i]
+		if v, ok := mib.GetNext(b.Name); ok {
+			out = append(out, VarBind{Name: v.OID, Value: v.Value})
+		} else {
+			out = append(out, VarBind{Name: b.Name, Value: Value{Type: tagEndOfMibView}})
+		}
+	}
+	// repeaters
+	reps := pdu.Bindings[nonRep:]
+	if len(reps) == 0 || maxRep == 0 {
+		return out
+	}
+	cursors := make([]OID, len(reps))
+	for i, b := range reps {
+		cursors[i] = b.Name
+	}
+	for r := 0; r < maxRep; r++ {
+		allEnd := true
+		for i := range reps {
+			if v, ok := mib.GetNext(cursors[i]); ok {
+				out = append(out, VarBind{Name: v.OID, Value: v.Value})
+				cursors[i] = v.OID
+				allEnd = false
 			} else {
-				for _, v := range vars {
-					if v.OID.Equal(roid) {
-						bindings = append(bindings, v)
-						break
-					}
-				}
+				out = append(out, VarBind{Name: cursors[i], Value: Value{Type: tagEndOfMibView}})
 			}
 		}
-	}
-	if len(bindings) == 0 {
-		return nil
-	}
-	return encodeResponse(req, a.community, bindings)
-}
-
-func containsCommunity(req []byte, community string) bool {
-	return len(community) > 0 && (stringIndex(req, []byte(community)) >= 0)
-}
-
-func stringIndex(hay, needle []byte) int {
-	for i := 0; i+len(needle) <= len(hay); i++ {
-		ok := true
-		for j := range needle {
-			if hay[i+j] != needle[j] {
-				ok = false
-				break
-			}
-		}
-		if ok {
-			return i
-		}
-	}
-	return -1
-}
-
-func extractOIDs(req []byte) []OID {
-	// Find sequences of 0x06 (OID tag) and parse
-	var out []OID
-	for i := 0; i < len(req); i++ {
-		if req[i] != 0x06 || i+1 >= len(req) {
-			continue
-		}
-		l := int(req[i+1])
-		if l&0x80 != 0 || i+2+l > len(req) {
-			continue
-		}
-		raw := req[i+2 : i+2+l]
-		oid := decodeOID(raw)
-		if len(oid) > 0 {
-			out = append(out, oid)
-		}
-		i += 1 + l
-	}
-	return out
-}
-
-func decodeOID(raw []byte) OID {
-	if len(raw) == 0 {
-		return nil
-	}
-	out := OID{uint(raw[0] / 40), uint(raw[0] % 40)}
-	var v uint
-	for i := 1; i < len(raw); i++ {
-		v = (v << 7) | uint(raw[i]&0x7f)
-		if raw[i]&0x80 == 0 {
-			out = append(out, v)
-			v = 0
+		if allEnd {
+			break
 		}
 	}
 	return out
 }
 
-func encodeOID(oid OID) []byte {
-	if len(oid) < 2 {
-		return []byte{0}
-	}
-	out := []byte{byte(oid[0]*40 + oid[1])}
-	for _, n := range oid[2:] {
-		out = append(out, encodeBase128(uint(n))...)
-	}
-	return out
-}
-
-func encodeBase128(n uint) []byte {
-	if n == 0 {
-		return []byte{0}
-	}
-	var tmp []byte
-	for n > 0 {
-		tmp = append([]byte{byte(n & 0x7f)}, tmp...)
-		n >>= 7
-	}
-	for i := 0; i < len(tmp)-1; i++ {
-		tmp[i] |= 0x80
-	}
-	return tmp
-}
-
-func encodeResponse(req []byte, community string, bindings []Variable) []byte {
-	// Build SNMPv2c RESPONSE PDU manually (simplified).
-	var varBind []byte
-	for _, b := range bindings {
-		oidBytes := encodeOID(b.OID)
-		var value []byte
-		switch b.Type {
-		case 0x04:
-			value = append([]byte{0x04, byte(len(b.Str))}, []byte(b.Str)...)
-		case 0x02:
-			value = encodeInteger(b.Int)
-		case 0x42: // gauge32
-			value = encodeGauge(b.Int)
-		case 0x46: // counter64 as integer fallback for simplicity
-			value = encodeInteger(b.Int)
-		default:
-			value = encodeInteger(b.Int)
-		}
-		vb := append([]byte{0x06, byte(len(oidBytes))}, oidBytes...)
-		vb = append(vb, value...)
-		varBind = append(varBind, wrap(0x30, vb)...)
-	}
-	// request-id copy: try to extract first integer after community
-	reqID := []byte{0x02, 0x01, 0x01}
-	errorStatus := []byte{0x02, 0x01, 0x00}
-	errorIndex := []byte{0x02, 0x01, 0x00}
-	pduBody := append(reqID, errorStatus...)
-	pduBody = append(pduBody, errorIndex...)
-	pduBody = append(pduBody, wrap(0x30, varBind)...)
-	pdu := wrap(0xA2, pduBody) // GetResponse
-
-	version := []byte{0x02, 0x01, 0x01} // v2c
-	comm := append([]byte{0x04, byte(len(community))}, []byte(community)...)
-	body := append(version, comm...)
-	body = append(body, pdu...)
-	_ = asn1.NullBytes
-	_ = binary.BigEndian
-	return wrap(0x30, body)
-}
-
-func wrap(tag byte, content []byte) []byte {
-	if len(content) < 128 {
-		return append([]byte{tag, byte(len(content))}, content...)
-	}
-	// long form
-	lb := []byte{tag, 0x82, byte(len(content) >> 8), byte(len(content))}
-	return append(lb, content...)
-}
-
-func encodeInteger(v int64) []byte {
-	// encode as ASN.1 INTEGER
-	if v >= 0 && v < 128 {
-		return []byte{0x02, 0x01, byte(v)}
-	}
-	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], uint64(v))
-	start := 0
-	for start < 7 && buf[start] == 0 {
-		start++
-	}
-	// if high bit set, keep leading zero for positive
-	if buf[start]&0x80 != 0 && v >= 0 {
-		start--
-	}
-	content := buf[start:]
-	return append([]byte{0x02, byte(len(content))}, content...)
-}
-
-func encodeGauge(v int64) []byte {
-	// Gauge32 application type 0x42
-	if v < 0 {
-		v = 0
-	}
-	if v < 256 {
-		return []byte{0x42, 0x01, byte(v)}
-	}
-	var buf [4]byte
-	binary.BigEndian.PutUint32(buf[:], uint32(v))
-	return append([]byte{0x42, 0x04}, buf[:]...)
-}
-
-// String for debug
+// String debug.
 func (a *Agent) String() string {
-	return fmt.Sprintf("snmp-agent(%s)", a.listen)
+	return fmt.Sprintf("snmp-agent(v2c,%s)", a.listen)
+}
+
+// SnapshotVars builds a debug list of current leaves (tests/compat).
+func (a *Agent) SnapshotVars() []Variable {
+	return BuildMIB(a.baseOID, a.cache, a.started).vars
 }

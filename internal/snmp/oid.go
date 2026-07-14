@@ -8,15 +8,22 @@ import (
 // OID is a numeric OID path.
 type OID []uint
 
+// ParseOID parses a dotted OID string (with optional leading dot).
+func ParseOID(s string) OID { return parseOID(s) }
+
 func parseOID(s string) OID {
+	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, ".")
+	if s == "" {
+		return nil
+	}
 	parts := strings.Split(s, ".")
 	out := make(OID, 0, len(parts))
 	for _, p := range parts {
 		if p == "" {
 			continue
 		}
-		n, err := strconv.Atoi(p)
+		n, err := strconv.ParseUint(p, 10, 32)
 		if err != nil {
 			continue
 		}
@@ -26,6 +33,9 @@ func parseOID(s string) OID {
 }
 
 func (o OID) String() string {
+	if len(o) == 0 {
+		return ""
+	}
 	var b strings.Builder
 	for i, n := range o {
 		if i > 0 {
@@ -36,6 +46,7 @@ func (o OID) String() string {
 	return b.String()
 }
 
+// Equal reports exact equality.
 func (o OID) Equal(other OID) bool {
 	if len(o) != len(other) {
 		return false
@@ -48,6 +59,7 @@ func (o OID) Equal(other OID) bool {
 	return true
 }
 
+// Child appends sub-identifiers.
 func (o OID) Child(extra ...uint) OID {
 	out := make(OID, len(o)+len(extra))
 	copy(out, o)
