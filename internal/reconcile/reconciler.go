@@ -361,11 +361,11 @@ func (r *Reconciler) sampleInterface(ctx context.Context, iface *db.Interface, p
 	for i := range peers {
 		p := &peers[i]
 		lp, ok := liveByPub[p.PublicKey]
-		var rx, tx int64
+		var rawRx, rawTx int64
 		var hs time.Time
 		ep := p.Endpoint
 		if ok {
-			rx, tx = lp.ReceiveBytes, lp.TransmitBytes
+			rawRx, rawTx = lp.ReceiveBytes, lp.TransmitBytes
 			hs = lp.LastHandshakeTime
 			if lp.Endpoint != "" {
 				ep = lp.Endpoint
@@ -374,15 +374,19 @@ func (r *Reconciler) sampleInterface(ctx context.Context, iface *db.Interface, p
 
 		key := iface.Name + "/" + p.PublicKey
 		// Rates use kernel counters (pre-offset) so soft-reset does not spike rates.
-		cur := stats.Sample{Time: now, Rx: rx, Tx: tx}
+		cur := stats.Sample{Time: now, Rx: rawRx, Tx: rawTx}
 		var rxBps, txBps, rxRaw, txRaw, intervalSec float64
-		if prev, ok := r.prevSample[key]; ok {
+		prev, hasPrev := r.prevSample[key]
+		if hasPrev {
 			rate := stats.ComputeRate(prev, cur)
 			rxRaw, txRaw = rate.RxBps, rate.TxBps
 			intervalSec = cur.Time.Sub(prev.Time).Seconds()
 			rxBps = stats.EWMA(p.LastRxBps, rate.RxBps, 0.3)
 			txBps = stats.EWMA(p.LastTxBps, rate.TxBps, 0.3)
 		}
+		// Persist lifetime totals — kernel transfer counters reset on reboot/iface recreate.
+		rx := stats.AccumulateLifetime(p.LastRxBytes, rawRx, prev.Rx, hasPrev)
+		tx := stats.AccumulateLifetime(p.LastTxBytes, rawTx, prev.Tx, hasPrev)
 		r.prevSample[key] = cur
 
 		p.LastRxBytes = rx
