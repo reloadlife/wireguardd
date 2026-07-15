@@ -27,12 +27,17 @@ wireguard:
   sample_interval: 5s
   reconcile_interval: 5s
   allow_hooks: false
-  # Per-peer bandwidth (independent RX + TX):
+  # Per-peer bandwidth (bytes/sec on peer.bandwidth_*_bps fields):
   #   tc  — Linux traffic control: HTB (TX) + ingress police (RX)
   #   nft — nftables inet table per iface: limit rate over … drop
   #         covers input/forward/output (routed + local)
   #   none — disable host enforcement
   # Peers need host-sized assigned_ips or /32|/128 allowed_ips for matching.
+  # Peer API/DB fields (optional, all default 0 / empty):
+  #   traffic_limit_bytes  — RX+TX quota; auto-suspend when exceeded
+  #   expires_at           — RFC3339; auto-suspend when past (kind peer.expired)
+  #   bandwidth_rx_bps / bandwidth_tx_bps — per-direction caps
+  #   bandwidth_total_bps  — if set and a side is 0, that side uses total
   bandwidth_backend: "tc" # tc | nft | none
   # Host DNS apply for interface DNS= (wg-quick parity):
   #   auto        — prefer resolvectl (systemd-resolved), else resolvconf

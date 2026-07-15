@@ -56,6 +56,16 @@ Public keys in paths use URL-safe base64 (`+`→`-`, `/`→`_`).
 
 Creating a peer with empty `allowed_ips` and `assigned_ips` auto-allocates the next free host IP from the interface subnet.
 
+Optional peer policy fields (create/update):
+
+| Field | Type | Notes |
+|-------|------|--------|
+| `traffic_limit_bytes` | int64 | Effective RX+TX quota; `0` = unlimited |
+| `expires_at` | string | RFC3339 or `""` to clear; past → auto-suspend |
+| `bandwidth_rx_bps` / `bandwidth_tx_bps` | int64 | Per-direction rate (bytes/sec) |
+| `bandwidth_total_bps` | int64 | Combined rate; fills zero directions |
+| `suspended` | bool | PATCH only; also `POST .../suspend` / `.../resume` |
+
 ## Metrics
 
 `GET /metrics` on the main listener and/or dedicated `listen.metrics` address (Prometheus text format).

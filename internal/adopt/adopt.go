@@ -349,6 +349,9 @@ func (s *Service) buildPlan(ctx context.Context, dev wgbackend.Device, opts Opti
 				peers[i].RxBytesOffset = peers[i].LastRxBytes
 				peers[i].TxBytesOffset = peers[i].LastTxBytes
 			}
+			if cp.ExpiresAt != "" {
+				peers[i].ExpiresAt = cp.ExpiresAt
+			}
 			if cp.Address != "" {
 				// "# Address = 172.20.0.2/24" → assigned host IP
 				host := strings.Split(cp.Address, "/")[0]
@@ -383,6 +386,7 @@ func (s *Service) buildPlan(ctx context.Context, dev wgbackend.Device, opts Opti
 				Endpoint:            cp.Endpoint,
 				PersistentKeepalive: cp.PersistentKeepalive,
 				TrafficLimitBytes:   cp.TrafficLimit,
+				ExpiresAt:           cp.ExpiresAt,
 			})
 			notes = append(notes, "imported conf-only peer "+short(cp.PublicKey))
 		}

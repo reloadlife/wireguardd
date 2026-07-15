@@ -247,15 +247,15 @@ WHERE id=?`,
 			res, err := tx.ExecContext(ctx, `
 INSERT INTO peers (
   interface_id, public_key, preshared_key, client_private_key, name, notes, allowed_ips, assigned_ips,
-  endpoint, persistent_keepalive, suspended, traffic_limit_bytes, bandwidth_rx_bps,
-  bandwidth_tx_bps, rx_bytes_offset, tx_bytes_offset, first_handshake_at, last_handshake_at,
+  endpoint, persistent_keepalive, suspended, traffic_limit_bytes, expires_at, bandwidth_rx_bps,
+  bandwidth_tx_bps, bandwidth_total_bps, rx_bytes_offset, tx_bytes_offset, first_handshake_at, last_handshake_at,
   connected_since, last_endpoint, last_rx_bytes, last_tx_bytes, last_rx_bps, last_tx_bps,
   tags, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				p.InterfaceID, p.PublicKey, p.PresharedKey, p.ClientPrivateKey, p.Name, p.Notes,
 				encodeJSONList(p.AllowedIPs), encodeJSONList(p.AssignedIPs),
-				p.Endpoint, p.PersistentKeepalive, suspended, p.TrafficLimitBytes, p.BandwidthRxBps,
-				p.BandwidthTxBps, p.RxBytesOffset, p.TxBytesOffset, p.FirstHandshakeAt, p.LastHandshakeAt,
+				p.Endpoint, p.PersistentKeepalive, suspended, p.TrafficLimitBytes, p.ExpiresAt, p.BandwidthRxBps,
+				p.BandwidthTxBps, p.BandwidthTotalBps, p.RxBytesOffset, p.TxBytesOffset, p.FirstHandshakeAt, p.LastHandshakeAt,
 				p.ConnectedSince, p.LastEndpoint, p.LastRxBytes, p.LastTxBytes, p.LastRxBps, p.LastTxBps,
 				encodeJSONList(p.Tags), now, now,
 			)

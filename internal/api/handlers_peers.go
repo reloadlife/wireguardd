@@ -151,6 +151,15 @@ func (s *Server) handleCreatePeer(w http.ResponseWriter, r *http.Request) {
 	if ka == 0 && iface.DefaultKeepalive > 0 {
 		ka = iface.DefaultKeepalive
 	}
+	expiresAt := strings.TrimSpace(req.ExpiresAt)
+	if expiresAt != "" {
+		if _, err := time.Parse(time.RFC3339, expiresAt); err != nil {
+			if _, err2 := time.Parse(time.RFC3339Nano, expiresAt); err2 != nil {
+				writeError(w, http.StatusBadRequest, "validation", "expires_at must be RFC3339")
+				return
+			}
+		}
+	}
 	peer := &db.Peer{
 		InterfaceID:         iface.ID,
 		PublicKey:           pub,
@@ -163,8 +172,10 @@ func (s *Server) handleCreatePeer(w http.ResponseWriter, r *http.Request) {
 		Endpoint:            req.Endpoint,
 		PersistentKeepalive: ka,
 		TrafficLimitBytes:   req.TrafficLimitBytes,
+		ExpiresAt:           expiresAt,
 		BandwidthRxBps:      req.BandwidthRxBps,
 		BandwidthTxBps:      req.BandwidthTxBps,
+		BandwidthTotalBps:   req.BandwidthTotalBps,
 		Tags:                req.Tags,
 	}
 	if err := s.store.CreatePeer(r.Context(), peer); err != nil {
@@ -247,15 +258,31 @@ func (s *Server) handleUpdatePeer(w http.ResponseWriter, r *http.Request) {
 	if req.TrafficLimitBytes != nil {
 		peer.TrafficLimitBytes = *req.TrafficLimitBytes
 	}
+	if req.ExpiresAt != nil {
+		expiresAt := strings.TrimSpace(*req.ExpiresAt)
+		if expiresAt != "" {
+			if _, err := time.Parse(time.RFC3339, expiresAt); err != nil {
+				if _, err2 := time.Parse(time.RFC3339Nano, expiresAt); err2 != nil {
+					writeError(w, http.StatusBadRequest, "validation", "expires_at must be RFC3339")
+					return
+				}
+			}
+		}
+		peer.ExpiresAt = expiresAt
+	}
 	if req.BandwidthRxBps != nil {
 		peer.BandwidthRxBps = *req.BandwidthRxBps
 	}
 	if req.BandwidthTxBps != nil {
 		peer.BandwidthTxBps = *req.BandwidthTxBps
 	}
+	if req.BandwidthTotalBps != nil {
+		peer.BandwidthTotalBps = *req.BandwidthTotalBps
+	}
 	if req.Tags != nil {
 		peer.Tags = req.Tags
 	}
+	prevSuspended := peer.Suspended
 	if req.Suspended != nil {
 		peer.Suspended = *req.Suspended
 	}
@@ -264,6 +291,15 @@ func (s *Server) handleUpdatePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.store.AddEvent(r.Context(), "info", "audit", name, peer.PublicKey, "peer updated", "{}")
+	// PATCH suspended=true/false also emits enforce so webhooks/routes stay consistent
+	// with dedicated suspend/resume endpoints.
+	if req.Suspended != nil && *req.Suspended != prevSuspended {
+		msg := "peer resumed"
+		if *req.Suspended {
+			msg = "peer suspended"
+		}
+		_ = s.store.AddEvent(r.Context(), "info", "enforce", name, peer.PublicKey, msg, `{"via":"patch"}`)
+	}
 	_ = s.ForceReconcile(r.Context())
 	writeJSON(w, http.StatusOK, s.toAPIPeer(peer, false))
 }
@@ -611,9 +647,10 @@ func (s *Server) toAPIPeer(p *db.Peer, reveal bool) pkgapi.Peer {
 		ID: p.ID, InterfaceName: p.InterfaceName, PublicKey: p.PublicKey,
 		Name: p.Name, Notes: p.Notes, AllowedIPs: p.AllowedIPs, AssignedIPs: p.AssignedIPs,
 		Endpoint: p.Endpoint, PersistentKeepalive: p.PersistentKeepalive,
-		Suspended: p.Suspended, TrafficLimitBytes: p.TrafficLimitBytes,
+		Suspended: p.Suspended, TrafficLimitBytes: p.TrafficLimitBytes, ExpiresAt: p.ExpiresAt,
 		BandwidthRxBps: p.BandwidthRxBps, BandwidthTxBps: p.BandwidthTxBps,
-		FirstHandshakeAt: p.FirstHandshakeAt, LastHandshakeAt: p.LastHandshakeAt,
+		BandwidthTotalBps: p.BandwidthTotalBps,
+		FirstHandshakeAt:  p.FirstHandshakeAt, LastHandshakeAt: p.LastHandshakeAt,
 		ConnectedSince: p.ConnectedSince, LastEndpoint: p.LastEndpoint,
 		RxBytes: effRx, TxBytes: effTx,
 		RxBps: traffic.Rate.RxBps, TxBps: traffic.Rate.TxBps,

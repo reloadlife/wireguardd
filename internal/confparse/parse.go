@@ -48,6 +48,7 @@ type PeerSection struct {
 	DNS              string // # DNS = 1.1.1.1
 	ClientAllowedIPs string // # ClientAllowedIPs = ...
 	TrafficLimit     int64  // # TrafficLimit = bytes
+	ExpiresAt        string // # ExpiresAt = 2026-12-31T00:00:00Z (RFC3339)
 	Notes            string // # Notes = ...
 }
 
@@ -183,6 +184,9 @@ func applyCommentMetaPeer(peer *PeerSection, m map[string]string) {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
 			peer.TrafficLimit = n
 		}
+	}
+	if v, ok := m["expiresat"]; ok {
+		peer.ExpiresAt = v
 	}
 }
 

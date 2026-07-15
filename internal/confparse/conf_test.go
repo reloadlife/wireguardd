@@ -61,6 +61,7 @@ PrivateKey = abc
 # Name = alice
 # Address = 10.0.0.2/24
 # TrafficLimit = 1000
+# ExpiresAt = 2026-12-31T00:00:00Z
 [Peer]
 PublicKey = def
 AllowedIPs = 0.0.0.0/0
@@ -77,6 +78,7 @@ AllowedIPs = 10.0.0.3/32
 	require.Equal(t, "alice", cfg.Peers[0].Name)
 	require.Equal(t, "10.0.0.2/24", cfg.Peers[0].Address)
 	require.Equal(t, int64(1000), cfg.Peers[0].TrafficLimit)
+	require.Equal(t, "2026-12-31T00:00:00Z", cfg.Peers[0].ExpiresAt)
 	require.Equal(t, "bob", cfg.Peers[1].Name)
 	require.Equal(t, int64(2000), cfg.Peers[1].TrafficLimit)
 	require.Equal(t, "ghi", cfg.Peers[1].PublicKey)
@@ -84,8 +86,10 @@ AllowedIPs = 10.0.0.3/32
 	out := Render(cfg)
 	require.Contains(t, out, "# Name = alice")
 	require.Contains(t, out, "# TrafficLimit = 1000")
+	require.Contains(t, out, "# ExpiresAt = 2026-12-31T00:00:00Z")
 	cfg2, err := Parse(out)
 	require.NoError(t, err)
 	require.Equal(t, "alice", cfg2.Peers[0].Name)
+	require.Equal(t, "2026-12-31T00:00:00Z", cfg2.Peers[0].ExpiresAt)
 	require.Equal(t, "bob", cfg2.Peers[1].Name)
 }

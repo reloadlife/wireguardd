@@ -121,19 +121,30 @@ func (r *Reconciler) run(ctx context.Context) error {
 			return err
 		}
 
-		// Auto-suspend on traffic limits
+		// Auto-suspend on traffic quota / expires_at
+		now := time.Now().UTC()
 		for j := range peers {
-			if policy.ShouldAutoSuspend(peers[j]) {
-				peers[j].Suspended = true
-				_ = r.store.SetPeerSuspended(ctx, peers[j].ID, true)
-				_ = r.store.AddEvent(ctx, "warn", "enforce", iface.Name, peers[j].PublicKey,
-					"auto-suspended: traffic limit exceeded", "{}")
-				r.log.Warn("peer auto-suspended", "iface", iface.Name, "peer", peers[j].PublicKey)
+			reason := policy.AutoSuspendReason(peers[j], now)
+			if reason == "" {
+				continue
 			}
+			peers[j].Suspended = true
+			_ = r.store.SetPeerSuspended(ctx, peers[j].ID, true)
+			kind := "enforce"
+			msg := "auto-suspended: traffic limit exceeded"
+			meta := `{"reason":"traffic_limit"}`
+			if reason == "expired" {
+				kind = "peer.expired"
+				msg = "auto-suspended: expires_at passed"
+				meta = fmt.Sprintf(`{"reason":"expired","expires_at":%q}`, peers[j].ExpiresAt)
+			}
+			_ = r.store.AddEvent(ctx, "warn", kind, iface.Name, peers[j].PublicKey, msg, meta)
+			r.log.Warn("peer auto-suspended", "iface", iface.Name, "peer", peers[j].PublicKey, "reason", reason)
 		}
 
 		desiredPeers := make([]wgbackend.DesiredPeer, 0, len(peers))
 		for _, p := range peers {
+			rxBps, txBps := policy.EffectiveBandwidth(p.BandwidthRxBps, p.BandwidthTxBps, p.BandwidthTotalBps)
 			desiredPeers = append(desiredPeers, wgbackend.DesiredPeer{
 				PublicKey:           p.PublicKey,
 				PresharedKey:        p.PresharedKey,
@@ -142,8 +153,8 @@ func (r *Reconciler) run(ctx context.Context) error {
 				AssignedIPs:         p.AssignedIPs,
 				PersistentKeepalive: p.PersistentKeepalive,
 				Suspended:           p.Suspended,
-				BandwidthRxBps:      p.BandwidthRxBps,
-				BandwidthTxBps:      p.BandwidthTxBps,
+				BandwidthRxBps:      rxBps,
+				BandwidthTxBps:      txBps,
 			})
 		}
 
@@ -306,6 +317,7 @@ func (r *Reconciler) exportConf(ctx context.Context, iface *db.Interface, peers 
 			Name:                p.Name,
 			Notes:               p.Notes,
 			TrafficLimit:        p.TrafficLimitBytes,
+			ExpiresAt:           p.ExpiresAt,
 		}
 		// Durable client address comment (# Address = x.x.x.x/24).
 		if len(p.AssignedIPs) > 0 {

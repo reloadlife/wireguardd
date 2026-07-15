@@ -104,9 +104,13 @@ type PeerCreateRequest struct {
 	Endpoint            string   `json:"endpoint"`
 	PersistentKeepalive int      `json:"persistent_keepalive"`
 	TrafficLimitBytes   int64    `json:"traffic_limit_bytes"`
-	BandwidthRxBps      int64    `json:"bandwidth_rx_bps"`
-	BandwidthTxBps      int64    `json:"bandwidth_tx_bps"`
-	Tags                []string `json:"tags"`
+	// ExpiresAt is RFC3339 (empty = never). When past, reconciler auto-suspends.
+	ExpiresAt         string `json:"expires_at,omitempty"`
+	BandwidthRxBps    int64  `json:"bandwidth_rx_bps"`
+	BandwidthTxBps    int64  `json:"bandwidth_tx_bps"`
+	// BandwidthTotalBps applies to both directions when a side is 0 (bytes/sec).
+	BandwidthTotalBps int64    `json:"bandwidth_total_bps"`
+	Tags              []string `json:"tags"`
 }
 
 // PeerUpdateRequest patches a peer.
@@ -120,8 +124,10 @@ type PeerUpdateRequest struct {
 	Endpoint            *string  `json:"endpoint,omitempty"`
 	PersistentKeepalive *int     `json:"persistent_keepalive,omitempty"`
 	TrafficLimitBytes   *int64   `json:"traffic_limit_bytes,omitempty"`
+	ExpiresAt           *string  `json:"expires_at,omitempty"` // RFC3339 or "" to clear
 	BandwidthRxBps      *int64   `json:"bandwidth_rx_bps,omitempty"`
 	BandwidthTxBps      *int64   `json:"bandwidth_tx_bps,omitempty"`
+	BandwidthTotalBps   *int64   `json:"bandwidth_total_bps,omitempty"`
 	Tags                []string `json:"tags,omitempty"`
 	Suspended           *bool    `json:"suspended,omitempty"`
 }
@@ -155,11 +161,13 @@ type Peer struct {
 	AssignedIPs         []string `json:"assigned_ips"`
 	Endpoint            string   `json:"endpoint"`
 	PersistentKeepalive int      `json:"persistent_keepalive"`
-	Suspended           bool     `json:"suspended"`
-	TrafficLimitBytes   int64    `json:"traffic_limit_bytes"`
-	BandwidthRxBps      int64    `json:"bandwidth_rx_bps"`
-	BandwidthTxBps      int64    `json:"bandwidth_tx_bps"`
-	FirstHandshakeAt    string   `json:"first_handshake_at,omitempty"`
+	Suspended           bool   `json:"suspended"`
+	TrafficLimitBytes   int64  `json:"traffic_limit_bytes"`
+	ExpiresAt           string `json:"expires_at,omitempty"`
+	BandwidthRxBps      int64  `json:"bandwidth_rx_bps"`
+	BandwidthTxBps      int64  `json:"bandwidth_tx_bps"`
+	BandwidthTotalBps   int64  `json:"bandwidth_total_bps"`
+	FirstHandshakeAt    string `json:"first_handshake_at,omitempty"`
 	LastHandshakeAt     string   `json:"last_handshake_at,omitempty"`
 	ConnectedSince      string   `json:"connected_since,omitempty"`
 	LastEndpoint        string   `json:"last_endpoint,omitempty"`

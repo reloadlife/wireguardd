@@ -60,6 +60,40 @@ export WIREGUARDCTL_TOKEN=...
 export WIREGUARDCTL_UNIX=/run/wireguardd/wireguardd.sock
 ```
 
+## Peer policy (quota, expiry, bandwidth)
+
+Per-peer limits are stored on the peer row and enforced by the reconciler:
+
+| Field | Meaning |
+|-------|---------|
+| `traffic_limit_bytes` | Soft quota on effective RX+TX (after soft-reset offsets). `0` = unlimited. When exceeded → auto-suspend. |
+| `expires_at` | RFC3339 timestamp (or empty). When `now >= expires_at` → auto-suspend. |
+| `bandwidth_rx_bps` / `bandwidth_tx_bps` | Per-direction rate limits (bytes/sec). Applied via `wireguard.bandwidth_backend` (`tc` / `nft`). |
+| `bandwidth_total_bps` | Combined cap. If `> 0` and a direction is `0`, that direction inherits the total (both sides when both are `0`). Explicit non-zero RX/TX keep their values. |
+| `suspended` | Manual or auto flag. Suspended peers get empty AllowedIPs / routes cleared (`ApplySuspendRoutes`). |
+
+Auto-suspend events:
+
+- traffic quota → `kind=enforce`, message `auto-suspended: traffic limit exceeded`
+- expiry → `kind=peer.expired`, message `auto-suspended: expires_at passed`
+- manual suspend/resume API → `kind=enforce`
+
+Webhooks deliver these via the usual event hook when enabled.
+
+Example create body (10 GiB quota, expire end of 2026, 1 MB/s total rate):
+
+```json
+{
+  "name": "alice",
+  "public_key": "...",
+  "allowed_ips": ["10.7.0.2/32"],
+  "assigned_ips": ["10.7.0.2"],
+  "traffic_limit_bytes": 10737418240,
+  "expires_at": "2026-12-31T00:00:00Z",
+  "bandwidth_total_bps": 1000000
+}
+```
+
 ## Conf-file comments (durable backup)
 
 In `hybrid` / `wg-quick` modes, exported confs include comment metadata so peer
@@ -69,6 +103,7 @@ names, tunnel addresses, and limits survive a lost database:
 # Name = alice
 # Address = 10.7.0.2/32
 # TrafficLimit = 10737418240
+# ExpiresAt = 2026-12-31T00:00:00Z
 [Peer]
 PublicKey = ...
 AllowedIPs = 10.7.0.2/32
@@ -93,5 +128,6 @@ Headers: `X-Agent: wireguardd`, `X-Event-Kind`, optional `X-Webhook-Signature: s
 Payload fields: `agent`, `version`, `ts`, `level`, `kind`, `resource` (interface),
 `subject` (peer public key), `message`, `meta`.
 
-Lifecycle kinds: `interface.up`, `interface.down`, `peer.connected`, `peer.disconnected`.
+Lifecycle kinds: `interface.up`, `interface.down`, `peer.connected`, `peer.disconnected`,
+`peer.expired`, plus `enforce` / `audit` for policy and API actions.
 Delivery is best-effort (bounded queue); controllers should still poll.

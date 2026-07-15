@@ -42,8 +42,12 @@ type Peer struct {
 	PersistentKeepalive int       `json:"persistent_keepalive"`
 	Suspended           bool      `json:"suspended"`
 	TrafficLimitBytes   int64     `json:"traffic_limit_bytes"`
-	BandwidthRxBps      int64     `json:"bandwidth_rx_bps"`
-	BandwidthTxBps      int64     `json:"bandwidth_tx_bps"`
+	// ExpiresAt is RFC3339 (or empty). When past, policy auto-suspends the peer.
+	ExpiresAt         string `json:"expires_at,omitempty"`
+	BandwidthRxBps    int64  `json:"bandwidth_rx_bps"`
+	BandwidthTxBps    int64  `json:"bandwidth_tx_bps"`
+	// BandwidthTotalBps is a combined cap; when >0 and a direction is 0, that direction uses Total.
+	BandwidthTotalBps int64 `json:"bandwidth_total_bps"`
 	RxBytesOffset       int64     `json:"-"`
 	TxBytesOffset       int64     `json:"-"`
 	FirstHandshakeAt    string    `json:"first_handshake_at,omitempty"`

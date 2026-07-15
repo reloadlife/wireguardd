@@ -67,6 +67,9 @@ func Render(cfg *Config) string {
 		if p.TrafficLimit > 0 {
 			fmt.Fprintf(&b, "# TrafficLimit = %d\n", p.TrafficLimit)
 		}
+		if p.ExpiresAt != "" {
+			fmt.Fprintf(&b, "# ExpiresAt = %s\n", p.ExpiresAt)
+		}
 		if p.Notes != "" {
 			// single-line notes only
 			fmt.Fprintf(&b, "# Notes = %s\n", strings.ReplaceAll(p.Notes, "\n", " "))
