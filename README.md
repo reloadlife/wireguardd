@@ -4,8 +4,11 @@
 
 **wireguardctl** is the control panel: full-screen TUI plus CLI (including self-update).
 
+How it works: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
 [![CI](https://github.com/reloadlife/wireguardd/actions/workflows/ci.yml/badge.svg)](https://github.com/reloadlife/wireguardd/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/reloadlife/wireguardd)](https://github.com/reloadlife/wireguardd/releases)
 
 ## Why
 
@@ -147,6 +150,17 @@ make build
 
 Contributions: [CONTRIBUTING.md](CONTRIBUTING.md)
 
+## Documentation
+
+| Doc | Contents |
+|-----|----------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How wireguardd works |
+| [docs/INSTALL.md](docs/INSTALL.md) | Install and service setup |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Daemon and ctl config |
+| [docs/API.md](docs/API.md) | HTTP API |
+| [SECURITY.md](SECURITY.md) | Reporting and hardening |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Development |
+
 ## Donations
 
 If this project is useful to you, donations are welcome:
@@ -160,3 +174,5 @@ If this project is useful to you, donations are welcome:
 ## License
 
 [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0).
+
+If you run a modified version of `wireguardd` as a network service, you must offer the corresponding source to users who interact with it over the network (AGPL §13).
