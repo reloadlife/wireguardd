@@ -8,8 +8,10 @@ on:
 permissions:
   contents: write
 
+# Serialize all tag releases so concurrent vX.Y.Z pushes cannot race GoReleaser
+# drafts (tag_name already_exists / untagged draft collisions).
 concurrency:
-  group: release-${{ github.ref }}
+  group: wireguardd-release
   cancel-in-progress: false
 
 jobs:

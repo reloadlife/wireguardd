@@ -23,8 +23,8 @@ import (
 type Config struct {
 	Enabled bool     `mapstructure:"enabled" yaml:"enabled"`
 	URL     string   `mapstructure:"url" yaml:"url"`
-	Secret  string   `mapstructure:"secret" yaml:"secret"` // optional HMAC-SHA256 key
-	Events  []string `mapstructure:"events" yaml:"events"` // empty or ["*"] = all
+	Secret  string   `mapstructure:"secret" yaml:"secret"`   // optional HMAC-SHA256 key
+	Events  []string `mapstructure:"events" yaml:"events"`   // empty or ["*"] = all
 	Timeout string   `mapstructure:"timeout" yaml:"timeout"` // e.g. 5s
 	// QueueSize bounds in-flight events (default 256).
 	QueueSize int `mapstructure:"queue_size" yaml:"queue_size"`
@@ -32,16 +32,16 @@ type Config struct {
 
 // Event is the JSON body POSTed to the controller.
 type Event struct {
-	Agent     string          `json:"agent"`
-	Version   string          `json:"version,omitempty"`
-	ID        int64           `json:"id,omitempty"`
-	TS        time.Time       `json:"ts"`
-	Level     string          `json:"level"`
-	Kind      string          `json:"kind"`
-	Resource  string          `json:"resource,omitempty"` // instance name (openvpnd)
-	Subject   string          `json:"subject,omitempty"`  // client CN / peer key
-	Message   string          `json:"message"`
-	Meta      json.RawMessage `json:"meta,omitempty"`
+	Agent    string          `json:"agent"`
+	Version  string          `json:"version,omitempty"`
+	ID       int64           `json:"id,omitempty"`
+	TS       time.Time       `json:"ts"`
+	Level    string          `json:"level"`
+	Kind     string          `json:"kind"`
+	Resource string          `json:"resource,omitempty"` // instance name (openvpnd)
+	Subject  string          `json:"subject,omitempty"`  // client CN / peer key
+	Message  string          `json:"message"`
+	Meta     json.RawMessage `json:"meta,omitempty"`
 }
 
 // Dispatcher posts events asynchronously.

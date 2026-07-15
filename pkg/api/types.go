@@ -105,9 +105,9 @@ type PeerCreateRequest struct {
 	PersistentKeepalive int      `json:"persistent_keepalive"`
 	TrafficLimitBytes   int64    `json:"traffic_limit_bytes"`
 	// ExpiresAt is RFC3339 (empty = never). When past, reconciler auto-suspends.
-	ExpiresAt         string `json:"expires_at,omitempty"`
-	BandwidthRxBps    int64  `json:"bandwidth_rx_bps"`
-	BandwidthTxBps    int64  `json:"bandwidth_tx_bps"`
+	ExpiresAt      string `json:"expires_at,omitempty"`
+	BandwidthRxBps int64  `json:"bandwidth_rx_bps"`
+	BandwidthTxBps int64  `json:"bandwidth_tx_bps"`
 	// BandwidthTotalBps applies to both directions when a side is 0 (bytes/sec).
 	BandwidthTotalBps int64    `json:"bandwidth_total_bps"`
 	Tags              []string `json:"tags"`
@@ -161,13 +161,13 @@ type Peer struct {
 	AssignedIPs         []string `json:"assigned_ips"`
 	Endpoint            string   `json:"endpoint"`
 	PersistentKeepalive int      `json:"persistent_keepalive"`
-	Suspended           bool   `json:"suspended"`
-	TrafficLimitBytes   int64  `json:"traffic_limit_bytes"`
-	ExpiresAt           string `json:"expires_at,omitempty"`
-	BandwidthRxBps      int64  `json:"bandwidth_rx_bps"`
-	BandwidthTxBps      int64  `json:"bandwidth_tx_bps"`
-	BandwidthTotalBps   int64  `json:"bandwidth_total_bps"`
-	FirstHandshakeAt    string `json:"first_handshake_at,omitempty"`
+	Suspended           bool     `json:"suspended"`
+	TrafficLimitBytes   int64    `json:"traffic_limit_bytes"`
+	ExpiresAt           string   `json:"expires_at,omitempty"`
+	BandwidthRxBps      int64    `json:"bandwidth_rx_bps"`
+	BandwidthTxBps      int64    `json:"bandwidth_tx_bps"`
+	BandwidthTotalBps   int64    `json:"bandwidth_total_bps"`
+	FirstHandshakeAt    string   `json:"first_handshake_at,omitempty"`
 	LastHandshakeAt     string   `json:"last_handshake_at,omitempty"`
 	ConnectedSince      string   `json:"connected_since,omitempty"`
 	LastEndpoint        string   `json:"last_endpoint,omitempty"`

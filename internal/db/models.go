@@ -28,39 +28,39 @@ type Interface struct {
 
 // Peer is the desired peer configuration plus observed stats.
 type Peer struct {
-	ID                  int64     `json:"id"`
-	InterfaceID         int64     `json:"interface_id"`
-	InterfaceName       string    `json:"interface_name,omitempty"`
-	PublicKey           string    `json:"public_key"`
-	PresharedKey        string    `json:"preshared_key,omitempty"`
-	ClientPrivateKey    string    `json:"client_private_key,omitempty"`
-	Name                string    `json:"name"`
-	Notes               string    `json:"notes"`
-	AllowedIPs          []string  `json:"allowed_ips"`
-	AssignedIPs         []string  `json:"assigned_ips"`
-	Endpoint            string    `json:"endpoint"`
-	PersistentKeepalive int       `json:"persistent_keepalive"`
-	Suspended           bool      `json:"suspended"`
-	TrafficLimitBytes   int64     `json:"traffic_limit_bytes"`
+	ID                  int64    `json:"id"`
+	InterfaceID         int64    `json:"interface_id"`
+	InterfaceName       string   `json:"interface_name,omitempty"`
+	PublicKey           string   `json:"public_key"`
+	PresharedKey        string   `json:"preshared_key,omitempty"`
+	ClientPrivateKey    string   `json:"client_private_key,omitempty"`
+	Name                string   `json:"name"`
+	Notes               string   `json:"notes"`
+	AllowedIPs          []string `json:"allowed_ips"`
+	AssignedIPs         []string `json:"assigned_ips"`
+	Endpoint            string   `json:"endpoint"`
+	PersistentKeepalive int      `json:"persistent_keepalive"`
+	Suspended           bool     `json:"suspended"`
+	TrafficLimitBytes   int64    `json:"traffic_limit_bytes"`
 	// ExpiresAt is RFC3339 (or empty). When past, policy auto-suspends the peer.
-	ExpiresAt         string `json:"expires_at,omitempty"`
-	BandwidthRxBps    int64  `json:"bandwidth_rx_bps"`
-	BandwidthTxBps    int64  `json:"bandwidth_tx_bps"`
+	ExpiresAt      string `json:"expires_at,omitempty"`
+	BandwidthRxBps int64  `json:"bandwidth_rx_bps"`
+	BandwidthTxBps int64  `json:"bandwidth_tx_bps"`
 	// BandwidthTotalBps is a combined cap; when >0 and a direction is 0, that direction uses Total.
-	BandwidthTotalBps int64 `json:"bandwidth_total_bps"`
-	RxBytesOffset       int64     `json:"-"`
-	TxBytesOffset       int64     `json:"-"`
-	FirstHandshakeAt    string    `json:"first_handshake_at,omitempty"`
-	LastHandshakeAt     string    `json:"last_handshake_at,omitempty"`
-	ConnectedSince      string    `json:"connected_since,omitempty"`
-	LastEndpoint        string    `json:"last_endpoint,omitempty"`
-	LastRxBytes         int64     `json:"last_rx_bytes"`
-	LastTxBytes         int64     `json:"last_tx_bytes"`
-	LastRxBps           float64   `json:"last_rx_bps"`
-	LastTxBps           float64   `json:"last_tx_bps"`
-	Tags                []string  `json:"tags"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
+	BandwidthTotalBps int64     `json:"bandwidth_total_bps"`
+	RxBytesOffset     int64     `json:"-"`
+	TxBytesOffset     int64     `json:"-"`
+	FirstHandshakeAt  string    `json:"first_handshake_at,omitempty"`
+	LastHandshakeAt   string    `json:"last_handshake_at,omitempty"`
+	ConnectedSince    string    `json:"connected_since,omitempty"`
+	LastEndpoint      string    `json:"last_endpoint,omitempty"`
+	LastRxBytes       int64     `json:"last_rx_bytes"`
+	LastTxBytes       int64     `json:"last_tx_bytes"`
+	LastRxBps         float64   `json:"last_rx_bps"`
+	LastTxBps         float64   `json:"last_tx_bps"`
+	Tags              []string  `json:"tags"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 // EffectiveRx returns user-visible received bytes after soft reset.
