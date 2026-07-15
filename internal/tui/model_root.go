@@ -1189,7 +1189,7 @@ func (m rootModel) viewIfaceDetail() string {
 	}
 	body := strings.Builder{}
 	kv := func(k, v string) {
-		body.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render(k), valueStyle.Render(v)))
+		fmt.Fprintf(&body, "%s %s\n", labelStyle.Render(k), valueStyle.Render(v))
 	}
 	kv("Name", i.Name)
 	kv("State", state)
@@ -1232,7 +1232,7 @@ func (m rootModel) viewPeerDetail() string {
 	}
 	body := strings.Builder{}
 	kv := func(k, v string) {
-		body.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render(k), valueStyle.Render(v)))
+		fmt.Fprintf(&body, "%s %s\n", labelStyle.Render(k), valueStyle.Render(v))
 	}
 	kv("Name", p.Name)
 	kv("Interface", p.InterfaceName)
