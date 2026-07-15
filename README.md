@@ -147,6 +147,16 @@ make build
 
 Contributions: [CONTRIBUTING.md](CONTRIBUTING.md)
 
+## Donations
+
+If this project is useful to you, donations are welcome:
+
+| Network | Address |
+|---------|---------|
+| **Bitcoin** (BTC) | `bc1qy08pk2teys968hphh98rv8y9azeraf2c8vsdm8` |
+| **Ethereum** (ETH / EVM) | `0x8B6CE1EA8F17f6941F13A621b92Af345a75D8c41` |
+| **TRON** (TRX) | `TGXJToyAsUtw1388jR5aW9ZohjSCDtmKbg` |
+
 ## License
 
 [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0).
