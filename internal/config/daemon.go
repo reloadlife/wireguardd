@@ -46,6 +46,18 @@ type DaemonConfig struct {
 		Format string `mapstructure:"format"`
 	} `mapstructure:"log"`
 	ReadOnly bool `mapstructure:"read_only"`
+	// Webhooks push agent events to an external controller (optional).
+	Webhooks WebhooksConfig `mapstructure:"webhooks"`
+}
+
+// WebhooksConfig delivers HTTP callbacks for controller integration.
+type WebhooksConfig struct {
+	Enabled   bool     `mapstructure:"enabled" yaml:"enabled"`
+	URL       string   `mapstructure:"url" yaml:"url"`
+	Secret    string   `mapstructure:"secret" yaml:"secret"`
+	Events    []string `mapstructure:"events" yaml:"events"`
+	Timeout   string   `mapstructure:"timeout" yaml:"timeout"`
+	QueueSize int      `mapstructure:"queue_size" yaml:"queue_size"`
 }
 
 // LoadDaemon loads daemon config from file/env/defaults.
@@ -114,6 +126,11 @@ func setDaemonDefaults(v *viper.Viper) {
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
 	v.SetDefault("read_only", false)
+	v.SetDefault("webhooks.enabled", false)
+	v.SetDefault("webhooks.url", "")
+	v.SetDefault("webhooks.secret", "")
+	v.SetDefault("webhooks.timeout", "5s")
+	v.SetDefault("webhooks.queue_size", 256)
 }
 
 // ReconcileInterval parses duration.

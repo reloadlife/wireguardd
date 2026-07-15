@@ -22,6 +22,8 @@ import (
 	"github.com/reloadlife/wireguardd/internal/reconcile"
 	"github.com/reloadlife/wireguardd/internal/snmp"
 	"github.com/reloadlife/wireguardd/internal/stats"
+	"github.com/reloadlife/wireguardd/internal/version"
+	"github.com/reloadlife/wireguardd/internal/webhook"
 	"github.com/reloadlife/wireguardd/internal/wgbackend"
 )
 
@@ -75,6 +77,19 @@ func (a *App) Run(ctx context.Context) error {
 	cache := stats.NewCache()
 	collector := metrics.New(cache, nil)
 
+	// Optional controller webhooks (also receives all store.AddEvent kinds).
+	wh := webhook.New(webhook.Config{
+		Enabled:   a.cfg.Webhooks.Enabled,
+		URL:       a.cfg.Webhooks.URL,
+		Secret:    a.cfg.Webhooks.Secret,
+		Events:    a.cfg.Webhooks.Events,
+		Timeout:   a.cfg.Webhooks.Timeout,
+		QueueSize: a.cfg.Webhooks.QueueSize,
+	}, "wireguardd", version.Version, a.log)
+	store.SetEventHook(func(level, kind, iface, peerKey, message, meta string) {
+		wh.EmitFromStore(level, kind, iface, peerKey, message, meta)
+	})
+
 	rec := reconcile.New(store, backend, cache, reconcile.Config{
 		Persistence:           a.cfg.WireGuard.Persistence,
 		ConfDir:               a.cfg.WireGuard.ConfDir,
@@ -105,6 +120,9 @@ func (a *App) Run(ctx context.Context) error {
 
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	wh.Start(ctx)
+	defer wh.Close()
 
 	go rec.Loop(ctx, a.cfg.ReconcileInterval())
 

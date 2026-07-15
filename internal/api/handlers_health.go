@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+	"os/exec"
+	"strings"
 
 	"github.com/reloadlife/wireguardd/internal/version"
 	pkgapi "github.com/reloadlife/wireguardd/pkg/api"
@@ -12,11 +14,49 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	checks := map[string]string{}
+	status := "ready"
 	if err := s.store.Ping(r.Context()); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "not_ready", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	checks["db"] = "ok"
+
+	bw := "none"
+	if s.cfg != nil {
+		bw = strings.ToLower(strings.TrimSpace(s.cfg.WireGuard.BandwidthBackend))
+	}
+	if bw == "" {
+		bw = "tc"
+	}
+	checks["bandwidth_backend"] = bw
+	switch bw {
+	case "tc":
+		if _, err := exec.LookPath("tc"); err != nil {
+			checks["bandwidth_tc"] = "missing"
+			status = "degraded"
+		} else {
+			checks["bandwidth_tc"] = "ok"
+		}
+	case "nft":
+		if _, err := exec.LookPath("nft"); err != nil {
+			checks["bandwidth_nft"] = "missing"
+			status = "degraded"
+		} else {
+			checks["bandwidth_nft"] = "ok"
+		}
+	default:
+		checks["bandwidth_tc"] = "n/a"
+	}
+
+	if s.cfg != nil && s.cfg.Webhooks.Enabled && strings.TrimSpace(s.cfg.Webhooks.URL) != "" {
+		checks["webhooks"] = "enabled"
+	} else {
+		checks["webhooks"] = "disabled"
+	}
+
+	code := http.StatusOK
+	writeJSON(w, code, map[string]any{"status": status, "checks": checks})
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {

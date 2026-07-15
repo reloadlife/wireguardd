@@ -43,6 +43,8 @@ type Reconciler struct {
 	prevSample map[string]stats.Sample // peer id key iface/pub
 	lastErr    error
 	hookState  map[string]bool // iface name -> last applied "enabled"
+	// lifecycle edges for controller webhooks
+	prevPeerConn map[string]bool // iface/pubkey → connected
 }
 
 // New creates a reconciler.
@@ -54,13 +56,14 @@ func New(store *db.Store, backend wgbackend.Backend, cache *stats.Cache, cfg Con
 		log = slog.Default()
 	}
 	return &Reconciler{
-		store:      store,
-		backend:    backend,
-		cache:      cache,
-		cfg:        cfg,
-		log:        log,
-		prevSample: make(map[string]stats.Sample),
-		hookState:  make(map[string]bool),
+		store:        store,
+		backend:      backend,
+		cache:        cache,
+		cfg:          cfg,
+		log:          log,
+		prevSample:   make(map[string]stats.Sample),
+		hookState:    make(map[string]bool),
+		prevPeerConn: make(map[string]bool),
 	}
 }
 
@@ -165,6 +168,12 @@ func (r *Reconciler) run(ctx context.Context) error {
 		wasEnabled, seen := r.hookState[iface.Name]
 		goingUp := iface.Enabled && (!seen || !wasEnabled)
 		goingDown := !iface.Enabled && seen && wasEnabled
+		if seen && goingUp {
+			_ = r.store.AddEvent(ctx, "info", "interface.up", iface.Name, "", "interface enabled", "{}")
+		}
+		if seen && goingDown {
+			_ = r.store.AddEvent(ctx, "warn", "interface.down", iface.Name, "", "interface disabled", "{}")
+		}
 
 		if r.cfg.AllowHooks && goingUp && iface.PreUp != "" {
 			_ = r.backend.RunHook(ctx, iface.PreUp)
@@ -386,6 +395,16 @@ func (r *Reconciler) sampleInterface(ctx context.Context, iface *db.Interface, p
 				p.ConnectedSince = ""
 			}
 		}
+		// peer connect/disconnect edges for controller webhooks
+		pkey := iface.Name + "/" + p.PublicKey
+		if was, ok := r.prevPeerConn[pkey]; ok && was != connected {
+			if connected {
+				_ = r.store.AddEvent(ctx, "info", "peer.connected", iface.Name, p.PublicKey, "peer handshake active", "{}")
+			} else {
+				_ = r.store.AddEvent(ctx, "info", "peer.disconnected", iface.Name, p.PublicKey, "peer handshake stale", "{}")
+			}
+		}
+		r.prevPeerConn[pkey] = connected
 
 		effRx, effTx := p.EffectiveRx(), p.EffectiveTx()
 		_ = r.store.UpdatePeerStats(ctx, p)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -21,6 +22,9 @@ type Store struct {
 	ts     *sql.DB // timeseries
 	memory bool
 	tsPath string
+
+	mu        sync.Mutex
+	eventHook EventHook
 }
 
 // OpenOptions configures both SQLite files.

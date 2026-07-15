@@ -45,6 +45,18 @@ wireguard:
   # tearing them down (also: wireguardctl discover / wireguardctl adopt).
   adopt_on_start: false
 
+# Push events to an external multi-tenant controller (optional).
+# HMAC: X-Webhook-Signature: sha256=<hex>
+# Body: {agent,version,ts,level,kind,resource,subject,message,meta}
+# resource = interface name; subject = peer public key when applicable.
+# Kinds: interface.up|down, peer.connected|disconnected, enforce, audit, …
+webhooks:
+  enabled: false
+  # url: "https://controller.example/hooks/wireguardd"
+  # secret: "shared-hmac-secret"
+  # events: ["*"]   # or ["peer.*","interface.*","enforce"]
+  # timeout: 5s
+
 log:
   level: info
   format: json

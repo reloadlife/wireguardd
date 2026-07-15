@@ -18,7 +18,12 @@ Default path after install: `/etc/wireguardd/config.yaml`
 | `db.timeseries_path` | Traffic samples SQLite (default: `<dir>/timeseries.db`) |
 | `wireguard.conf_dir` | Directory for `*.conf` export / adopt merge |
 | `wireguard.persistence` | `database` \| `wg-quick` \| `hybrid` |
-| `wireguard.bandwidth_backend` | `tc` \| `nft` \| `none` |
+| `wireguard.bandwidth_backend` | `tc` \| `nft` \| `none` (default `tc`; `/readyz` checks `tc`/`nft` binary) |
+| `webhooks.enabled` | `false` — POST agent events to an external controller |
+| `webhooks.url` | HTTPS endpoint for the controller |
+| `webhooks.secret` | Optional HMAC-SHA256 key (`X-Webhook-Signature: sha256=…`) |
+| `webhooks.events` | Empty/`["*"]` = all; supports `peer.*` prefix filters |
+| `webhooks.timeout` | HTTP timeout (default `5s`) |
 | `wireguard.dns_backend` | `auto` \| `resolvectl` \| `resolvconf` \| `none` |
 | `wireguard.adopt_on_start` | Import live interfaces on boot |
 | `wireguard.allow_hooks` | Allow PreUp/PostUp shell hooks (dangerous if API is exposed) |
@@ -68,3 +73,25 @@ names, tunnel addresses, and limits survive a lost database:
 PublicKey = ...
 AllowedIPs = 10.7.0.2/32
 ```
+
+## Webhooks (controller push)
+
+Optional HTTP callbacks for a higher-layer multi-tenant controller. All SQLite
+`events` rows plus lifecycle edges are eligible.
+
+```yaml
+webhooks:
+  enabled: true
+  url: "https://controller.example/hooks/wireguardd"
+  secret: "shared-hmac-secret"
+  events: ["*"]   # or ["peer.*","interface.*","enforce"]
+  timeout: 5s
+```
+
+Headers: `X-Agent: wireguardd`, `X-Event-Kind`, optional `X-Webhook-Signature: sha256=<hex>`.
+
+Payload fields: `agent`, `version`, `ts`, `level`, `kind`, `resource` (interface),
+`subject` (peer public key), `message`, `meta`.
+
+Lifecycle kinds: `interface.up`, `interface.down`, `peer.connected`, `peer.disconnected`.
+Delivery is best-effort (bounded queue); controllers should still poll.

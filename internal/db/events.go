@@ -6,6 +6,16 @@ import (
 	"time"
 )
 
+// EventHook is invoked after a successful events row insert (webhooks, etc.).
+type EventHook func(level, kind, iface, peerKey, message, meta string)
+
+// SetEventHook registers an optional post-insert callback (e.g. webhook dispatcher).
+func (s *Store) SetEventHook(hook EventHook) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.eventHook = hook
+}
+
 // AddEvent inserts an event record.
 func (s *Store) AddEvent(ctx context.Context, level, kind, iface, peerKey, message, meta string) error {
 	if meta == "" {
@@ -18,6 +28,12 @@ VALUES (?, ?, ?, ?, ?, ?, ?)`,
 	)
 	if err != nil {
 		return fmt.Errorf("insert event: %w", err)
+	}
+	s.mu.Lock()
+	hook := s.eventHook
+	s.mu.Unlock()
+	if hook != nil {
+		hook(level, kind, iface, peerKey, message, meta)
 	}
 	return nil
 }
