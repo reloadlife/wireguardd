@@ -80,7 +80,7 @@ Auto-suspend events:
 
 Webhooks deliver these via the usual event hook when enabled.
 
-Example create body (10 GiB quota, expire end of 2026, 1 MB/s total rate):
+Example create body (10 GiB quota, expire end of 2026, ~1 MB/s rate):
 
 ```json
 {
@@ -90,9 +90,11 @@ Example create body (10 GiB quota, expire end of 2026, 1 MB/s total rate):
   "assigned_ips": ["10.7.0.2"],
   "traffic_limit_bytes": 10737418240,
   "expires_at": "2026-12-31T00:00:00Z",
-  "bandwidth_total_bps": 1000000
+  "bandwidth_total_bps": 8000000
 }
 ```
+
+Rate fields are **bits/sec** (same as live metrics). `8000000` ≈ 1 MB/s applied to each direction when total fills zero RX/TX.
 
 ## Conf-file comments (durable backup)
 
