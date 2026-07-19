@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/reloadlife/wireguardd/internal/wgbackend"
+
 	"github.com/go-chi/chi/v5"
 
 	"github.com/reloadlife/wireguardd/internal/confparse"
@@ -77,13 +79,43 @@ func (s *Server) handleCreateInterface(w http.ResponseWriter, r *http.Request) {
 	priv := req.PrivateKey
 	pub := ""
 	if priv == "" {
+		// Adopt the key of an interface that already exists in the kernel
+		// rather than minting a new one.
+		//
+		// An interface's private key IS its identity: every peer that talks to
+		// it holds the matching public key. Rotating it silently does not fail
+		// loudly — WireGuard simply stops answering peers that no longer
+		// recognise it, with no log line on either side, which is
+		// indistinguishable from the link being down.
+		//
+		// That is what took sky-ams-1 off the control-plane mesh for over three
+		// hours on 2026-07-19: mesh0 was recreated without a key while a
+		// duplicate wireguardd unit was crash-looping, thr kept the old public
+		// key in its peer list, and every handshake was silently dropped. SSH
+		// and every daemon on the node were fine the whole time.
+		//
+		// node-agent already refuses to report mesh0 upward for this reason
+		// ("CP desired-state would recreate an empty iface and wipe the thr
+		// peer every reconcile"), but that guard only covers one caller. The
+		// invariant belongs here, where the key is actually issued.
+		if dev, err := s.backend.Device(r.Context(), req.Name); err == nil && dev != nil &&
+			dev.PrivateKey != "" && !wgbackend.IsZeroKey(dev.PrivateKey) {
+			priv = dev.PrivateKey
+			if p, err := crypto.PublicFromPrivate(priv); err == nil {
+				pub = p
+			}
+			s.log.Warn("adopted existing interface key instead of generating a new one",
+				"iface", req.Name, "public_key", pub)
+		}
+	}
+	if priv == "" {
 		kp, err := crypto.GenerateKeyPair()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "keygen_failed", err.Error())
 			return
 		}
 		priv, pub = kp.PrivateKey, kp.PublicKey
-	} else {
+	} else if pub == "" {
 		var err error
 		pub, err = crypto.PublicFromPrivate(priv)
 		if err != nil {
