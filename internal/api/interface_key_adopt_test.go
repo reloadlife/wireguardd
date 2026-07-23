@@ -21,28 +21,44 @@ import (
 // side, which looks exactly like the link being down.
 //
 // That is how sky-ams-1 left the control-plane mesh for over three hours on
-// 2026-07-19 while SSH and every daemon on it stayed healthy.
+// 2026-07-19 while SSH and every daemon on it stayed healthy. (mesh0 itself is
+// now hard-reserved — see TestCreateInterfaceRejectsReservedMesh — so this
+// test uses a product-style name that can still be adopted.)
 func TestCreateInterfaceAdoptsExistingKernelKey(t *testing.T) {
 	srv, _, backend := setupServer(t)
 	h := srv.Router()
 
-	// An interface already live in the kernel, as mesh0 is.
+	// An interface already live in the kernel (product ingress, not mesh0).
 	existing, err := crypto.GenerateKeyPair()
 	require.NoError(t, err)
-	backend.DevicesM["mesh0"] = &wgbackend.Device{
-		Name:       "mesh0",
+	backend.DevicesM["wg-owire-in"] = &wgbackend.Device{
+		Name:       "wg-owire-in",
 		PrivateKey: existing.PrivateKey,
 		PublicKey:  existing.PublicKey,
 	}
 
 	rr := doJSON(t, h, http.MethodPost, "/v1/interfaces", "test-token",
-		pkgapi.InterfaceCreateRequest{Name: "mesh0", Addresses: []string{"10.66.0.2/32"}},
+		pkgapi.InterfaceCreateRequest{Name: "wg-owire-in", Addresses: []string{"100.67.80.1/22"}},
 		http.StatusCreated)
 
 	var got pkgapi.Interface
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
 	require.Equal(t, existing.PublicKey, got.PublicKey,
 		"created interface must keep the key its peers already trust, not a fresh one")
+}
+
+// mesh0 is host-managed under /etc/wg-mesh. wireguardd must refuse to create it
+// so a stale conf or UI click cannot rewrite control-plane peer keys again.
+func TestCreateInterfaceRejectsReservedMesh(t *testing.T) {
+	srv, _, _ := setupServer(t)
+	h := srv.Router()
+
+	rr := doJSON(t, h, http.MethodPost, "/v1/interfaces", "test-token",
+		pkgapi.InterfaceCreateRequest{Name: "mesh0", Addresses: []string{"10.66.0.1/32"}},
+		http.StatusConflict)
+
+	require.Contains(t, rr.Body.String(), "reserved_interface")
+	require.Contains(t, rr.Body.String(), "mesh0")
 }
 
 // A genuinely new interface still gets a generated key — the guard must not

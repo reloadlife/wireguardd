@@ -11,6 +11,7 @@ import (
 
 	"github.com/reloadlife/wireguardd/internal/confparse"
 	"github.com/reloadlife/wireguardd/internal/db"
+	"github.com/reloadlife/wireguardd/internal/netutil"
 	"github.com/reloadlife/wireguardd/internal/policy"
 	"github.com/reloadlife/wireguardd/internal/stats"
 	"github.com/reloadlife/wireguardd/internal/wgbackend"
@@ -115,6 +116,12 @@ func (r *Reconciler) run(ctx context.Context) error {
 
 	for i := range ifaces {
 		iface := ifaces[i]
+		// Never reconcile host-managed control-plane mesh — even a stale DB
+		// row must not rewrite mesh0 peers/keys on the wire.
+		if netutil.ReservedHostInterface(iface.Name) {
+			r.log.Warn("reconcile skip reserved host interface", "iface", iface.Name)
+			continue
+		}
 		desiredNames[iface.Name] = struct{}{}
 		peers, err := r.store.ListPeersByInterface(ctx, iface.Name)
 		if err != nil {
@@ -250,8 +257,13 @@ func (r *Reconciler) run(ctx context.Context) error {
 	}
 
 	// Remove previously managed interfaces that are no longer desired.
+	// Never touch host-managed mesh* even if it somehow entered hookState.
 	for name := range r.hookState {
 		if _, ok := desiredNames[name]; ok {
+			continue
+		}
+		if netutil.ReservedHostInterface(name) {
+			delete(r.hookState, name)
 			continue
 		}
 		if _, live := liveNames[name]; live {

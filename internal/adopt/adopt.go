@@ -13,6 +13,7 @@ import (
 	"github.com/reloadlife/wireguardd/internal/confparse"
 	"github.com/reloadlife/wireguardd/internal/crypto"
 	"github.com/reloadlife/wireguardd/internal/db"
+	"github.com/reloadlife/wireguardd/internal/netutil"
 	"github.com/reloadlife/wireguardd/internal/wgbackend"
 )
 
@@ -169,6 +170,12 @@ func (s *Service) plan(ctx context.Context, opts Options) ([]plan, error) {
 			if _, ok := want[dev.Name]; !ok {
 				continue
 			}
+		}
+		// Never adopt host-managed control-plane mesh (mesh0). Importing it
+		// lets reconcile rewrite peers/keys and take the node offline from CP.
+		if netutil.ReservedHostInterface(dev.Name) {
+			s.log.Info("adopt skip reserved host interface", "iface", dev.Name)
+			continue
 		}
 		p, err := s.buildPlan(ctx, dev, opts)
 		if err != nil {

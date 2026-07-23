@@ -58,6 +58,10 @@ func (s *Server) handleCreateInterface(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation", "name is required")
 		return
 	}
+	if netutil.ReservedHostInterface(req.Name) {
+		writeError(w, http.StatusConflict, "reserved_interface", netutil.ReservedHostInterfaceMessage(req.Name))
+		return
+	}
 	if req.ListenPort < 0 || req.ListenPort > 65535 {
 		writeError(w, http.StatusBadRequest, "validation", "listen_port must be 0-65535")
 		return
@@ -303,6 +307,10 @@ func splitHostPortRaw(ep string) (host, port string, err error) {
 
 func (s *Server) handleUpdateInterface(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
+	if netutil.ReservedHostInterface(name) {
+		writeError(w, http.StatusConflict, "reserved_interface", netutil.ReservedHostInterfaceMessage(name))
+		return
+	}
 	iface, err := s.store.GetInterfaceByName(r.Context(), name)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found", "interface not found")
@@ -423,6 +431,28 @@ func (s *Server) handleUpdateInterface(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteInterface(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	ctx := r.Context()
+	// Reserved control-plane meshes (mesh0) must never be torn down by
+	// wireguardd. If a stale row exists in the DB from a past adopt, purge the
+	// row only — leave the kernel interface and its peers untouched.
+	if netutil.ReservedHostInterface(name) {
+		if err := s.store.DeleteInterface(ctx, name); err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				writeError(w, http.StatusConflict, "reserved_interface", netutil.ReservedHostInterfaceMessage(name))
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "delete_failed", err.Error())
+			return
+		}
+		_ = s.store.AddEvent(ctx, "info", "audit", name, "",
+			"reserved interface purged from DB only (kernel left intact)", "{}")
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":      true,
+			"name":    name,
+			"kernel":  "left_intact",
+			"message": "removed reserved interface from wireguardd DB only",
+		})
+		return
+	}
 	do := func() error {
 		if err := s.store.DeleteInterface(ctx, name); err != nil {
 			return err
