@@ -82,53 +82,53 @@ type InterfaceCreateRequest struct {
 
 // InterfaceUpdateRequest patches an interface.
 type InterfaceUpdateRequest struct {
-	PrivateKey       *string  `json:"private_key,omitempty"`
-	ListenPort       *int     `json:"listen_port,omitempty"`
-	FwMark           *int     `json:"fwmark,omitempty"`
-	MTU              *int     `json:"mtu,omitempty"`
-	TableMode        *string  `json:"table_mode,omitempty"`
-	TableID          *int     `json:"table_id,omitempty"`
-	DNS              []string `json:"dns,omitempty"`
-	Addresses        []string `json:"addresses,omitempty"`
-	PreUp            *string  `json:"pre_up,omitempty"`
-	PostUp           *string  `json:"post_up,omitempty"`
-	PreDown          *string  `json:"pre_down,omitempty"`
-	PostDown         *string  `json:"post_down,omitempty"`
-	DefaultKeepalive *int     `json:"default_keepalive,omitempty"`
-	PublicEndpoint   *string  `json:"public_endpoint,omitempty"`
-	Enabled          *bool    `json:"enabled,omitempty"`
-	Backend          *string  `json:"backend,omitempty"`
-	Protocol         *string  `json:"protocol,omitempty"`
+	PrivateKey       *string        `json:"private_key,omitempty"`
+	ListenPort       *int           `json:"listen_port,omitempty"`
+	FwMark           *int           `json:"fwmark,omitempty"`
+	MTU              *int           `json:"mtu,omitempty"`
+	TableMode        *string        `json:"table_mode,omitempty"`
+	TableID          *int           `json:"table_id,omitempty"`
+	DNS              []string       `json:"dns,omitempty"`
+	Addresses        []string       `json:"addresses,omitempty"`
+	PreUp            *string        `json:"pre_up,omitempty"`
+	PostUp           *string        `json:"post_up,omitempty"`
+	PreDown          *string        `json:"pre_down,omitempty"`
+	PostDown         *string        `json:"post_down,omitempty"`
+	DefaultKeepalive *int           `json:"default_keepalive,omitempty"`
+	PublicEndpoint   *string        `json:"public_endpoint,omitempty"`
+	Enabled          *bool          `json:"enabled,omitempty"`
+	Backend          *string        `json:"backend,omitempty"`
+	Protocol         *string        `json:"protocol,omitempty"`
 	Amnezia          *AmneziaParams `json:"amnezia,omitempty"`
-	PairName         *string  `json:"pair_name,omitempty"`
+	PairName         *string        `json:"pair_name,omitempty"`
 }
 
 // Interface is the API representation of an interface.
 type Interface struct {
-	ID               int64     `json:"id"`
-	Name             string    `json:"name"`
-	PrivateKey       string    `json:"private_key,omitempty"`
-	PublicKey        string    `json:"public_key"`
-	ListenPort       int       `json:"listen_port"`
-	FwMark           int       `json:"fwmark"`
-	MTU              int       `json:"mtu"`
-	TableMode        string    `json:"table_mode"`
-	TableID          *int      `json:"table_id,omitempty"`
-	DNS              []string  `json:"dns"`
-	Addresses        []string  `json:"addresses"`
-	PreUp            string    `json:"pre_up,omitempty"`
-	PostUp           string    `json:"post_up,omitempty"`
-	PreDown          string    `json:"pre_down,omitempty"`
-	PostDown         string    `json:"post_down,omitempty"`
-	DefaultKeepalive int       `json:"default_keepalive"`
-	PublicEndpoint   string    `json:"public_endpoint,omitempty"`
-	Enabled          bool      `json:"enabled"`
-	Up               bool      `json:"up"`
-	PeerCount        int       `json:"peer_count"`
-	RxBytes          int64     `json:"rx_bytes"`
-	TxBytes          int64     `json:"tx_bytes"`
-	RxBps            float64   `json:"rx_bps"`
-	TxBps            float64   `json:"tx_bps"`
+	ID               int64    `json:"id"`
+	Name             string   `json:"name"`
+	PrivateKey       string   `json:"private_key,omitempty"`
+	PublicKey        string   `json:"public_key"`
+	ListenPort       int      `json:"listen_port"`
+	FwMark           int      `json:"fwmark"`
+	MTU              int      `json:"mtu"`
+	TableMode        string   `json:"table_mode"`
+	TableID          *int     `json:"table_id,omitempty"`
+	DNS              []string `json:"dns"`
+	Addresses        []string `json:"addresses"`
+	PreUp            string   `json:"pre_up,omitempty"`
+	PostUp           string   `json:"post_up,omitempty"`
+	PreDown          string   `json:"pre_down,omitempty"`
+	PostDown         string   `json:"post_down,omitempty"`
+	DefaultKeepalive int      `json:"default_keepalive"`
+	PublicEndpoint   string   `json:"public_endpoint,omitempty"`
+	Enabled          bool     `json:"enabled"`
+	Up               bool     `json:"up"`
+	PeerCount        int      `json:"peer_count"`
+	RxBytes          int64    `json:"rx_bytes"`
+	TxBytes          int64    `json:"tx_bytes"`
+	RxBps            float64  `json:"rx_bps"`
+	TxBps            float64  `json:"tx_bps"`
 	// Backend desired: auto|kernel|userspace|amnezia_kernel|amnezia_go
 	Backend string `json:"backend,omitempty"`
 	// ResolvedBackend is the live/detected backend when known.
