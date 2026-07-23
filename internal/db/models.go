@@ -4,24 +4,24 @@ import "time"
 
 // Interface is the desired WireGuard interface configuration.
 type Interface struct {
-	ID               int64     `json:"id"`
-	Name             string    `json:"name"`
-	PrivateKey       string    `json:"private_key,omitempty"`
-	PublicKey        string    `json:"public_key"`
-	ListenPort       int       `json:"listen_port"`
-	FwMark           int       `json:"fwmark"`
-	MTU              int       `json:"mtu"`
-	TableMode        string    `json:"table_mode"`
-	TableID          *int      `json:"table_id,omitempty"`
-	DNS              []string  `json:"dns"`
-	Addresses        []string  `json:"addresses"`
-	PreUp            string    `json:"pre_up,omitempty"`
-	PostUp           string    `json:"post_up,omitempty"`
-	PreDown          string    `json:"pre_down,omitempty"`
-	PostDown         string    `json:"post_down,omitempty"`
-	DefaultKeepalive int       `json:"default_keepalive"`
-	PublicEndpoint   string    `json:"public_endpoint,omitempty"`
-	Enabled          bool      `json:"enabled"`
+	ID               int64    `json:"id"`
+	Name             string   `json:"name"`
+	PrivateKey       string   `json:"private_key,omitempty"`
+	PublicKey        string   `json:"public_key"`
+	ListenPort       int      `json:"listen_port"`
+	FwMark           int      `json:"fwmark"`
+	MTU              int      `json:"mtu"`
+	TableMode        string   `json:"table_mode"`
+	TableID          *int     `json:"table_id,omitempty"`
+	DNS              []string `json:"dns"`
+	Addresses        []string `json:"addresses"`
+	PreUp            string   `json:"pre_up,omitempty"`
+	PostUp           string   `json:"post_up,omitempty"`
+	PreDown          string   `json:"pre_down,omitempty"`
+	PostDown         string   `json:"post_down,omitempty"`
+	DefaultKeepalive int      `json:"default_keepalive"`
+	PublicEndpoint   string   `json:"public_endpoint,omitempty"`
+	Enabled          bool     `json:"enabled"`
 	// Backend: auto | kernel | userspace | amnezia_kernel | amnezia_go
 	Backend string `json:"backend,omitempty"`
 	// Protocol: wg | awg

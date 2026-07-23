@@ -733,7 +733,7 @@ func (s *Server) toAPIInterface(ctx context.Context, iface *db.Interface, reveal
 		RxBytes: rx, TxBytes: tx, RxBps: rxBps, TxBps: txBps,
 		Backend: iface.Backend, ResolvedBackend: resolved,
 		Protocol: iface.Protocol, Amnezia: decodeAmnezia(iface.AmneziaJSON),
-		PairName: iface.PairName,
+		PairName:  iface.PairName,
 		CreatedAt: iface.CreatedAt, UpdatedAt: iface.UpdatedAt,
 	}
 	if s.cfg.WireGuard.AllowHooks {

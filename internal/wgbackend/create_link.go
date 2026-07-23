@@ -51,11 +51,14 @@ func (b *HostBackend) ensureLink(ctx context.Context, name, backend string) erro
 
 func (b *HostBackend) createKernelLink(ctx context.Context, name, kind string) error {
 	// Best-effort modprobe for amneziawg / wireguard.
-	mod := kind
-	if kind == "amneziawg" {
+	var mod string
+	switch kind {
+	case "amneziawg":
 		mod = ModuleAmneziaWG
-	} else if kind == "wireguard" {
+	case "wireguard":
 		mod = ModuleWireGuard
+	default:
+		mod = kind
 	}
 	_, _ = b.runner.Run(ctx, "modprobe", mod)
 

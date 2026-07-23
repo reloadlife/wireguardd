@@ -9,7 +9,7 @@ import (
 
 // handleBackends reports which WireGuard / Amnezia backends the host can run.
 func (s *Server) handleBackends(w http.ResponseWriter, r *http.Request) {
-	caps := pkgapi.BackendCapabilities{}
+	var caps pkgapi.BackendCapabilities
 	if hb, ok := s.backend.(*wgbackend.HostBackend); ok {
 		c := hb.Caps(r.Context())
 		caps = pkgapi.BackendCapabilities{

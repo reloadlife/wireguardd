@@ -25,13 +25,13 @@ const (
 type CapabilityProbe struct {
 	runner Runner
 
-	mu       sync.Mutex
-	cached   bool
-	caps     BackendCaps
-	wgGo     string
-	awgGo    string
-	awgTool  string
-	wgTool   string
+	mu      sync.Mutex
+	cached  bool
+	caps    BackendCaps
+	wgGo    string
+	awgGo   string
+	awgTool string
+	wgTool  string
 }
 
 // BackendCaps is a snapshot of host capabilities.
@@ -147,9 +147,7 @@ func (p *CapabilityProbe) ResolveBackend(ctx context.Context, protocol, requeste
 		}
 		switch req {
 		case BackendKernel:
-			if !caps.KernelWG && !caps.UserspaceWG {
-				// still try; create may load module
-			}
+			// still try even if probe missed; create may load module
 		case BackendUserspace:
 			if !caps.UserspaceWG {
 				return "", fmt.Errorf("wireguard-go binary %q not found", p.wgGo)

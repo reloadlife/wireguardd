@@ -36,18 +36,6 @@ func (b *HostBackend) linkMTU(ctx context.Context, name string) int {
 	return 0
 }
 
-func (b *HostBackend) createLink(ctx context.Context, name string) error {
-	if b.linkExists(ctx, name) {
-		return nil
-	}
-	// Prefer ip link add type wireguard
-	if _, err := b.runner.Run(ctx, "ip", "link", "add", "dev", name, "type", "wireguard"); err != nil {
-		// Fallback: wg-quick style via wireguard-go is not attempted; surface error.
-		return err
-	}
-	return nil
-}
-
 func (b *HostBackend) deleteLink(ctx context.Context, name string) error {
 	if !b.linkExists(ctx, name) {
 		return nil
