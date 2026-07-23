@@ -78,6 +78,55 @@ func TestHealthAndAuth(t *testing.T) {
 	doJSON(t, h, http.MethodGet, "/v1/version", "test-token", nil, http.StatusOK)
 }
 
+func TestCreateAWGPair(t *testing.T) {
+	srv, store, backend := setupServer(t)
+	h := srv.Router()
+	token := "test-token"
+
+	rr := doJSON(t, h, http.MethodPost, "/v1/interfaces", token, pkgapi.InterfaceCreateRequest{
+		Name:           "wg0",
+		ListenPort:     51820,
+		Addresses:      []string{"10.8.0.1/24"},
+		AWGAddresses:   []string{"10.9.0.1/24"},
+		PublicEndpoint: "vpn.example.com:51820",
+		CreateAWGPair:  true,
+	}, http.StatusCreated)
+	var pair pkgapi.InterfacePairResponse
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &pair))
+	require.Equal(t, "wg0", pair.WG.Name)
+	require.Equal(t, "awg0", pair.AWG.Name)
+	require.Equal(t, 51820, pair.WG.ListenPort)
+	require.Equal(t, 51830, pair.AWG.ListenPort)
+	require.Equal(t, "wg", pair.WG.Protocol)
+	require.Equal(t, "awg", pair.AWG.Protocol)
+	require.Equal(t, "awg0", pair.WG.PairName)
+	require.Equal(t, "wg0", pair.AWG.PairName)
+	require.NotNil(t, pair.AWG.Amnezia)
+	require.NotEmpty(t, pair.AWG.Amnezia.H1)
+	require.Equal(t, pair.WG.PublicKey, pair.AWG.PublicKey)
+	require.Equal(t, "vpn.example.com:51830", pair.AWG.PublicEndpoint)
+
+	// mock backend has both devices after reconcile
+	require.NoError(t, srv.ForceReconcile(context.Background()))
+	devs, err := backend.Devices(context.Background())
+	require.NoError(t, err)
+	require.Len(t, devs, 2)
+
+	// list
+	rr = doJSON(t, h, http.MethodGet, "/v1/interfaces", token, nil, http.StatusOK)
+	var list []pkgapi.Interface
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &list))
+	require.Len(t, list, 2)
+
+	// backends endpoint
+	rr = doJSON(t, h, http.MethodGet, "/v1/backends", token, nil, http.StatusOK)
+	var caps pkgapi.BackendCapabilities
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &caps))
+	require.True(t, caps.KernelWG)
+
+	_ = store
+}
+
 func TestInterfacePeerLifecycle(t *testing.T) {
 	srv, store, backend := setupServer(t)
 	h := srv.Router()
@@ -94,6 +143,8 @@ func TestInterfacePeerLifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &iface))
 	require.Equal(t, "wg0", iface.Name)
 	require.NotEmpty(t, iface.PublicKey)
+	require.Equal(t, "wg", iface.Protocol)
+	require.Equal(t, "auto", iface.Backend)
 
 	// list
 	rr = doJSON(t, h, http.MethodGet, "/v1/interfaces", token, nil, http.StatusOK)

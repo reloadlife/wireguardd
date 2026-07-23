@@ -97,6 +97,22 @@ func (m *MockBackend) EnsureInterface(ctx context.Context, desired DesiredInterf
 	if len(desired.Addresses) > 0 {
 		d.Addresses = append([]string(nil), desired.Addresses...)
 	}
+	backend := desired.Backend
+	if backend == "" || backend == BackendAuto {
+		if desired.Protocol == ProtocolAWG || !desired.Amnezia.IsZero() {
+			backend = BackendAmneziaKernel
+		} else {
+			backend = BackendKernel
+		}
+	}
+	d.Backend = backend
+	if desired.Protocol != "" {
+		d.Protocol = desired.Protocol
+	} else if IsAmneziaBackend(backend) {
+		d.Protocol = ProtocolAWG
+	} else {
+		d.Protocol = ProtocolWG
+	}
 	d.Up = desired.Enabled
 	return nil
 }

@@ -14,7 +14,7 @@ var ErrNotFound = errors.New("not found")
 const ifaceSelect = `
 SELECT id, name, private_key, public_key, listen_port, fwmark, mtu, table_mode, table_id,
        dns, addresses, pre_up, post_up, pre_down, post_down, default_keepalive, public_endpoint,
-       enabled, created_at, updated_at
+       enabled, backend, protocol, amnezia_json, pair_name, created_at, updated_at
 FROM interfaces`
 
 // CreateInterface inserts a new interface.
@@ -22,6 +22,12 @@ func (s *Store) CreateInterface(ctx context.Context, iface *Interface) error {
 	now := nowRFC3339()
 	if iface.TableMode == "" {
 		iface.TableMode = "auto"
+	}
+	if iface.Backend == "" {
+		iface.Backend = "auto"
+	}
+	if iface.Protocol == "" {
+		iface.Protocol = "wg"
 	}
 	if iface.DNS == nil {
 		iface.DNS = []string{}
@@ -41,12 +47,14 @@ func (s *Store) CreateInterface(ctx context.Context, iface *Interface) error {
 INSERT INTO interfaces (
   name, private_key, public_key, listen_port, fwmark, mtu, table_mode, table_id,
   dns, addresses, pre_up, post_up, pre_down, post_down, default_keepalive, public_endpoint, enabled,
+  backend, protocol, amnezia_json, pair_name,
   created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		iface.Name, iface.PrivateKey, iface.PublicKey, iface.ListenPort, iface.FwMark, iface.MTU,
 		iface.TableMode, tableID, encodeJSONList(iface.DNS), encodeJSONList(iface.Addresses),
 		iface.PreUp, iface.PostUp, iface.PreDown, iface.PostDown, iface.DefaultKeepalive,
-		iface.PublicEndpoint, enabled, now, now,
+		iface.PublicEndpoint, enabled, iface.Backend, iface.Protocol, iface.AmneziaJSON, iface.PairName,
+		now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("insert interface: %w", err)
@@ -102,16 +110,23 @@ func (s *Store) UpdateInterface(ctx context.Context, iface *Interface) error {
 	if iface.Enabled {
 		enabled = 1
 	}
+	if iface.Backend == "" {
+		iface.Backend = "auto"
+	}
+	if iface.Protocol == "" {
+		iface.Protocol = "wg"
+	}
 	res, err := s.db.ExecContext(ctx, `
 UPDATE interfaces SET
   private_key=?, public_key=?, listen_port=?, fwmark=?, mtu=?, table_mode=?, table_id=?,
   dns=?, addresses=?, pre_up=?, post_up=?, pre_down=?, post_down=?, default_keepalive=?,
-  public_endpoint=?, enabled=?, updated_at=?
+  public_endpoint=?, enabled=?, backend=?, protocol=?, amnezia_json=?, pair_name=?, updated_at=?
 WHERE id=?`,
 		iface.PrivateKey, iface.PublicKey, iface.ListenPort, iface.FwMark, iface.MTU,
 		iface.TableMode, tableID, encodeJSONList(iface.DNS), encodeJSONList(iface.Addresses),
 		iface.PreUp, iface.PostUp, iface.PreDown, iface.PostDown, iface.DefaultKeepalive,
-		iface.PublicEndpoint, enabled, now, iface.ID,
+		iface.PublicEndpoint, enabled, iface.Backend, iface.Protocol, iface.AmneziaJSON, iface.PairName,
+		now, iface.ID,
 	)
 	if err != nil {
 		return err
@@ -179,16 +194,24 @@ func (s *Store) ImportInterface(ctx context.Context, iface *Interface, peers []P
 		err := tx.QueryRowContext(ctx, `SELECT id FROM interfaces WHERE name = ?`, iface.Name).Scan(&existingID)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
+			if iface.Backend == "" {
+				iface.Backend = "auto"
+			}
+			if iface.Protocol == "" {
+				iface.Protocol = "wg"
+			}
 			res, err := tx.ExecContext(ctx, `
 INSERT INTO interfaces (
   name, private_key, public_key, listen_port, fwmark, mtu, table_mode, table_id,
   dns, addresses, pre_up, post_up, pre_down, post_down, default_keepalive, public_endpoint, enabled,
+  backend, protocol, amnezia_json, pair_name,
   created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				iface.Name, iface.PrivateKey, iface.PublicKey, iface.ListenPort, iface.FwMark, iface.MTU,
 				iface.TableMode, tableID, encodeJSONList(iface.DNS), encodeJSONList(iface.Addresses),
 				iface.PreUp, iface.PostUp, iface.PreDown, iface.PostDown, iface.DefaultKeepalive,
-				iface.PublicEndpoint, enabled, now, now,
+				iface.PublicEndpoint, enabled, iface.Backend, iface.Protocol, iface.AmneziaJSON, iface.PairName,
+				now, now,
 			)
 			if err != nil {
 				return fmt.Errorf("insert interface: %w", err)
@@ -204,16 +227,23 @@ INSERT INTO interfaces (
 			return err
 		default:
 			iface.ID = existingID
+			if iface.Backend == "" {
+				iface.Backend = "auto"
+			}
+			if iface.Protocol == "" {
+				iface.Protocol = "wg"
+			}
 			res, err := tx.ExecContext(ctx, `
 UPDATE interfaces SET
   private_key=?, public_key=?, listen_port=?, fwmark=?, mtu=?, table_mode=?, table_id=?,
   dns=?, addresses=?, pre_up=?, post_up=?, pre_down=?, post_down=?, default_keepalive=?,
-  public_endpoint=?, enabled=?, updated_at=?
+  public_endpoint=?, enabled=?, backend=?, protocol=?, amnezia_json=?, pair_name=?, updated_at=?
 WHERE id=?`,
 				iface.PrivateKey, iface.PublicKey, iface.ListenPort, iface.FwMark, iface.MTU,
 				iface.TableMode, tableID, encodeJSONList(iface.DNS), encodeJSONList(iface.Addresses),
 				iface.PreUp, iface.PostUp, iface.PreDown, iface.PostDown, iface.DefaultKeepalive,
-				iface.PublicEndpoint, enabled, now, iface.ID,
+				iface.PublicEndpoint, enabled, iface.Backend, iface.Protocol, iface.AmneziaJSON, iface.PairName,
+				now, iface.ID,
 			)
 			if err != nil {
 				return err
@@ -297,7 +327,8 @@ func scanInterface(row scannable) (*Interface, error) {
 		&iface.ID, &iface.Name, &iface.PrivateKey, &iface.PublicKey, &iface.ListenPort,
 		&iface.FwMark, &iface.MTU, &iface.TableMode, &tableID, &dns, &addrs,
 		&iface.PreUp, &iface.PostUp, &iface.PreDown, &iface.PostDown, &iface.DefaultKeepalive,
-		&iface.PublicEndpoint, &enabled, &created, &updated,
+		&iface.PublicEndpoint, &enabled, &iface.Backend, &iface.Protocol, &iface.AmneziaJSON, &iface.PairName,
+		&created, &updated,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -312,6 +343,12 @@ func scanInterface(row scannable) (*Interface, error) {
 	iface.DNS = decodeJSONList(dns)
 	iface.Addresses = decodeJSONList(addrs)
 	iface.Enabled = enabled != 0
+	if iface.Backend == "" {
+		iface.Backend = "auto"
+	}
+	if iface.Protocol == "" {
+		iface.Protocol = "wg"
+	}
 	iface.CreatedAt = parseTime(created)
 	iface.UpdatedAt = parseTime(updated)
 	return &iface, nil

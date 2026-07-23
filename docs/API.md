@@ -40,6 +40,34 @@ OpenAPI sketch: [`api/openapi.yaml`](../api/openapi.yaml) (may lag; this list is
 
 Addresses must be valid CIDRs. `public_endpoint` must be `host:port` when set.
 
+### Multi-backend WireGuard / AmneziaWG
+
+Each interface has:
+
+| Field | Values |
+|-------|--------|
+| `backend` | `auto` · `kernel` · `userspace` (wireguard-go) · `amnezia_kernel` · `amnezia_go` |
+| `protocol` | `wg` (plain) · `awg` (AmneziaWG) |
+| `amnezia` | Optional `{jc,jmin,jmax,s1–s4,h1–h4,i1–i5}` (required shape for `awg`) |
+
+`GET /v1/backends` reports which host implementations are available.
+
+**Dual pair create** (recommended default for product ingresses):
+
+```json
+POST /v1/interfaces
+{
+  "name": "wg0",
+  "listen_port": 51820,
+  "addresses": ["10.8.0.1/24"],
+  "awg_addresses": ["10.8.0.2/24"],
+  "public_endpoint": "vpn.example.com:51820",
+  "create_awg_pair": true
+}
+```
+
+Returns `{ "wg": {...}, "awg": {...} }` with the twin on **listen_port + 10** (`51830`), protocol `awg`, and a generated noise preset. Existing interfaces without these fields keep `backend=auto` / `protocol=wg` and are unchanged.
+
 ## Peers
 
 | Method | Path |

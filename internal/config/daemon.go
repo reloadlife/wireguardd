@@ -40,6 +40,10 @@ type DaemonConfig struct {
 		UseMockBackend        bool   `mapstructure:"use_mock_backend"`
 		// AdoptOnStart imports live WireGuard devices into the DB on boot (non-destructive).
 		AdoptOnStart bool `mapstructure:"adopt_on_start"`
+		// Optional binary overrides (empty → PATH: wireguard-go / amneziawg-go / awg).
+		WireGuardGo string `mapstructure:"wireguard_go"`
+		AmneziaWGGo string `mapstructure:"amneziawg_go"`
+		AWGTool     string `mapstructure:"awg_tool"`
 	} `mapstructure:"wireguard"`
 	Log struct {
 		Level  string `mapstructure:"level"`

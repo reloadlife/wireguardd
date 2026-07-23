@@ -565,13 +565,22 @@ func (s *Server) buildClientConfig(r *http.Request, ifaceName, pubkey string) (s
 		return "", errors.New("interface public_endpoint not set (required for client config)")
 	}
 	clientAllowed := []string{"0.0.0.0/0", "::/0"}
+	sec := confparse.InterfaceSection{
+		PrivateKey: peer.ClientPrivateKey,
+		Address:    normAddrs,
+		DNS:        iface.DNS,
+		MTU:        iface.MTU,
+		Protocol:   iface.Protocol,
+	}
+	// Emit Amnezia params into client conf when this is an AWG ingress.
+	if am := decodeAmnezia(iface.AmneziaJSON); am != nil {
+		sec.Jc, sec.Jmin, sec.Jmax = am.Jc, am.Jmin, am.Jmax
+		sec.S1, sec.S2, sec.S3, sec.S4 = am.S1, am.S2, am.S3, am.S4
+		sec.H1, sec.H2, sec.H3, sec.H4 = am.H1, am.H2, am.H3, am.H4
+		sec.I1, sec.I2, sec.I3, sec.I4, sec.I5 = am.I1, am.I2, am.I3, am.I4, am.I5
+	}
 	cfg := &confparse.Config{
-		Interface: confparse.InterfaceSection{
-			PrivateKey: peer.ClientPrivateKey,
-			Address:    normAddrs,
-			DNS:        iface.DNS,
-			MTU:        iface.MTU,
-		},
+		Interface: sec,
 		Peers: []confparse.PeerSection{{
 			PublicKey:           iface.PublicKey,
 			PresharedKey:        peer.PresharedKey,

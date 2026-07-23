@@ -28,10 +28,31 @@ type InterfaceSection struct {
 	PostDown   string // multiple PostDown lines joined with \n
 	SaveConfig bool
 
+	// AmneziaWG interface-level params (optional).
+	Jc   int
+	Jmin int
+	Jmax int
+	S1   int
+	S2   int
+	S3   int
+	S4   int
+	H1   string
+	H2   string
+	H3   string
+	H4   string
+	I1   string
+	I2   string
+	I3   string
+	I4   string
+	I5   string
+
 	// Comment metadata (persisted as # Key = value above the section body).
 	PublicKeyComment string // # PublicKey = ...
 	PeerDNS          string // # PeerDNS = ... (default client DNS)
 	PeerEndpoint     string // # PeerEndpoint = ... (public endpoint for clients)
+	Backend          string // # Backend = kernel|userspace|amnezia_kernel|amnezia_go
+	Protocol         string // # Protocol = wg|awg
+	PairName         string // # PairName = twin interface
 }
 
 // PeerSection holds [Peer] fields plus durable comment metadata.
@@ -162,6 +183,15 @@ func applyCommentMetaIface(iface *InterfaceSection, m map[string]string) {
 	if v, ok := m["peerendpoint"]; ok {
 		iface.PeerEndpoint = v
 	}
+	if v, ok := m["backend"]; ok {
+		iface.Backend = v
+	}
+	if v, ok := m["protocol"]; ok {
+		iface.Protocol = v
+	}
+	if v, ok := m["pairname"]; ok {
+		iface.PairName = v
+	}
 }
 
 func applyCommentMetaPeer(peer *PeerSection, m map[string]string) {
@@ -228,10 +258,78 @@ func applyInterface(iface *InterfaceSection, key, val string) error {
 		iface.PostDown = joinHook(iface.PostDown, val)
 	case "saveconfig":
 		iface.SaveConfig = strings.EqualFold(val, "true")
+	case "jc":
+		n, err := parseInt(val)
+		if err != nil {
+			return err
+		}
+		iface.Jc = n
+	case "jmin":
+		n, err := parseInt(val)
+		if err != nil {
+			return err
+		}
+		iface.Jmin = n
+	case "jmax":
+		n, err := parseInt(val)
+		if err != nil {
+			return err
+		}
+		iface.Jmax = n
+	case "s1":
+		n, err := parseInt(val)
+		if err != nil {
+			return err
+		}
+		iface.S1 = n
+	case "s2":
+		n, err := parseInt(val)
+		if err != nil {
+			return err
+		}
+		iface.S2 = n
+	case "s3":
+		n, err := parseInt(val)
+		if err != nil {
+			return err
+		}
+		iface.S3 = n
+	case "s4":
+		n, err := parseInt(val)
+		if err != nil {
+			return err
+		}
+		iface.S4 = n
+	case "h1":
+		iface.H1 = val
+	case "h2":
+		iface.H2 = val
+	case "h3":
+		iface.H3 = val
+	case "h4":
+		iface.H4 = val
+	case "i1":
+		iface.I1 = val
+	case "i2":
+		iface.I2 = val
+	case "i3":
+		iface.I3 = val
+	case "i4":
+		iface.I4 = val
+	case "i5":
+		iface.I5 = val
 	default:
 		// Ignore unknown keys for forward compatibility.
 	}
 	return nil
+}
+
+// HasAmnezia reports whether any Amnezia field is set on the interface section.
+func (i InterfaceSection) HasAmnezia() bool {
+	return i.Jc != 0 || i.Jmin != 0 || i.Jmax != 0 ||
+		i.S1 != 0 || i.S2 != 0 || i.S3 != 0 || i.S4 != 0 ||
+		i.H1 != "" || i.H2 != "" || i.H3 != "" || i.H4 != "" ||
+		i.I1 != "" || i.I2 != "" || i.I3 != "" || i.I4 != "" || i.I5 != ""
 }
 
 func joinHook(prev, next string) string {

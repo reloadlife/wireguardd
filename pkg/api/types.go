@@ -21,6 +21,27 @@ type VersionInfo struct {
 	Date    string `json:"date"`
 }
 
+// AmneziaParams are interface-level AmneziaWG obfuscation parameters.
+// S* and H* must match client and server; Jc/Jmin/Jmax may differ (often client-only).
+type AmneziaParams struct {
+	Jc   int    `json:"jc,omitempty"`
+	Jmin int    `json:"jmin,omitempty"`
+	Jmax int    `json:"jmax,omitempty"`
+	S1   int    `json:"s1,omitempty"`
+	S2   int    `json:"s2,omitempty"`
+	S3   int    `json:"s3,omitempty"`
+	S4   int    `json:"s4,omitempty"`
+	H1   string `json:"h1,omitempty"`
+	H2   string `json:"h2,omitempty"`
+	H3   string `json:"h3,omitempty"`
+	H4   string `json:"h4,omitempty"`
+	I1   string `json:"i1,omitempty"`
+	I2   string `json:"i2,omitempty"`
+	I3   string `json:"i3,omitempty"`
+	I4   string `json:"i4,omitempty"`
+	I5   string `json:"i5,omitempty"`
+}
+
 // InterfaceCreateRequest creates a WireGuard interface.
 type InterfaceCreateRequest struct {
 	Name             string   `json:"name"`
@@ -39,6 +60,24 @@ type InterfaceCreateRequest struct {
 	DefaultKeepalive int      `json:"default_keepalive"`
 	PublicEndpoint   string   `json:"public_endpoint,omitempty"` // host:port advertised to clients
 	Enabled          *bool    `json:"enabled,omitempty"`
+	// Backend: auto | kernel | userspace | amnezia_kernel | amnezia_go
+	Backend string `json:"backend,omitempty"`
+	// Protocol: wg | awg
+	Protocol string `json:"protocol,omitempty"`
+	// Amnezia params (required shape for protocol=awg; auto-generated when empty).
+	Amnezia *AmneziaParams `json:"amnezia,omitempty"`
+	// CreateAWGPair creates a sibling AWG interface on listen_port+10 (default dual ingress).
+	CreateAWGPair bool `json:"create_awg_pair,omitempty"`
+	// AWGName overrides the twin name (default derived from name).
+	AWGName string `json:"awg_name,omitempty"`
+	// AWGAddresses for the twin; empty leaves addresses unset on the AWG iface.
+	AWGAddresses []string `json:"awg_addresses,omitempty"`
+	// AWGBackend overrides twin backend (default auto → amnezia_kernel preferred).
+	AWGBackend string `json:"awg_backend,omitempty"`
+	// AWGAmnezia overrides twin noise (default: generated noise preset).
+	AWGAmnezia *AmneziaParams `json:"awg_amnezia,omitempty"`
+	// NeutralAWG forces H=1..4 S=0 dual-compat mode on the AWG twin.
+	NeutralAWG bool `json:"neutral_awg,omitempty"`
 }
 
 // InterfaceUpdateRequest patches an interface.
@@ -58,6 +97,10 @@ type InterfaceUpdateRequest struct {
 	DefaultKeepalive *int     `json:"default_keepalive,omitempty"`
 	PublicEndpoint   *string  `json:"public_endpoint,omitempty"`
 	Enabled          *bool    `json:"enabled,omitempty"`
+	Backend          *string  `json:"backend,omitempty"`
+	Protocol         *string  `json:"protocol,omitempty"`
+	Amnezia          *AmneziaParams `json:"amnezia,omitempty"`
+	PairName         *string  `json:"pair_name,omitempty"`
 }
 
 // Interface is the API representation of an interface.
@@ -86,8 +129,33 @@ type Interface struct {
 	TxBytes          int64     `json:"tx_bytes"`
 	RxBps            float64   `json:"rx_bps"`
 	TxBps            float64   `json:"tx_bps"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	// Backend desired: auto|kernel|userspace|amnezia_kernel|amnezia_go
+	Backend string `json:"backend,omitempty"`
+	// ResolvedBackend is the live/detected backend when known.
+	ResolvedBackend string `json:"resolved_backend,omitempty"`
+	// Protocol: wg | awg
+	Protocol string `json:"protocol,omitempty"`
+	// Amnezia params when protocol=awg (or amnezia backend).
+	Amnezia *AmneziaParams `json:"amnezia,omitempty"`
+	// PairName is the linked twin interface (WG ↔ AWG).
+	PairName  string    `json:"pair_name,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// InterfacePairResponse is returned when create_awg_pair creates both interfaces.
+type InterfacePairResponse struct {
+	WG  Interface `json:"wg"`
+	AWG Interface `json:"awg"`
+}
+
+// BackendCapabilities describes which host backends are available.
+type BackendCapabilities struct {
+	KernelWG         bool `json:"kernel_wg"`
+	UserspaceWG      bool `json:"userspace_wg"`
+	KernelAmnezia    bool `json:"kernel_amnezia"`
+	UserspaceAmnezia bool `json:"userspace_amnezia"`
+	AWGTool          bool `json:"awg_tool"`
 }
 
 // PeerCreateRequest creates a peer.

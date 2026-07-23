@@ -13,7 +13,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-// HostBackend drives the real host via wgctrl + ip/wg/tc/nft.
+// HostBackend drives the real host via wgctrl + ip/wg/awg/tc/nft and userspace go.
 type HostBackend struct {
 	mu               sync.Mutex
 	client           *wgctrl.Client
@@ -26,6 +26,11 @@ type HostBackend struct {
 	nft              *nftState
 	routes           *routeState
 	dns              *dnsState
+	probe            *CapabilityProbe
+	wgGoBin          string
+	awgGoBin         string
+	awgTool          string
+	wgTool           string
 }
 
 // HostOptions configures HostBackend.
@@ -35,6 +40,11 @@ type HostOptions struct {
 	BandwidthBackend string
 	DNSBackend       string // auto | resolvectl | resolvconf | none
 	Runner           Runner
+	// Optional binary overrides (empty → PATH defaults).
+	WireGuardGo string
+	AmneziaWGGo string
+	AWGTool     string
+	WGTool      string
 }
 
 // NewHostBackend opens wgctrl.
@@ -55,6 +65,22 @@ func NewHostBackend(opts HostOptions) (*HostBackend, error) {
 	if dns == "" {
 		dns = DNSBackendAuto
 	}
+	wgGo := opts.WireGuardGo
+	if wgGo == "" {
+		wgGo = DefaultWireGuardGo
+	}
+	awgGo := opts.AmneziaWGGo
+	if awgGo == "" {
+		awgGo = DefaultAmneziaWGGo
+	}
+	awgTool := opts.AWGTool
+	if awgTool == "" {
+		awgTool = DefaultAWGTool
+	}
+	wgTool := opts.WGTool
+	if wgTool == "" {
+		wgTool = DefaultWGTool
+	}
 	return &HostBackend{
 		client:           client,
 		runner:           r,
@@ -66,7 +92,20 @@ func NewHostBackend(opts HostOptions) (*HostBackend, error) {
 		dns:              newDNSState(),
 		bandwidthBackend: bw,
 		dnsBackend:       dns,
+		probe:            NewCapabilityProbe(r, wgGo, awgGo, awgTool),
+		wgGoBin:          wgGo,
+		awgGoBin:         awgGo,
+		awgTool:          awgTool,
+		wgTool:           wgTool,
 	}, nil
+}
+
+// Caps returns host backend capabilities (kernel / go / amnezia).
+func (b *HostBackend) Caps(ctx context.Context) BackendCaps {
+	if b.probe == nil {
+		return BackendCaps{}
+	}
+	return b.probe.Caps(ctx)
 }
 
 // Close implements Backend.
@@ -146,7 +185,7 @@ func convertDevice(d *wgtypes.Device) Device {
 	return dev
 }
 
-// enrichDevice adds link operstate, MTU, and addresses from ip(8).
+// enrichDevice adds link operstate, MTU, addresses, and backend detection from ip(8).
 func (b *HostBackend) enrichDevice(ctx context.Context, dev Device) Device {
 	if b.runner != nil {
 		if addrs, err := b.listAddresses(ctx, dev.Name); err == nil {
@@ -155,6 +194,12 @@ func (b *HostBackend) enrichDevice(ctx context.Context, dev Device) Device {
 		dev.Up = b.linkIsUp(ctx, dev.Name)
 		if mtu := b.linkMTU(ctx, dev.Name); mtu > 0 {
 			dev.MTU = mtu
+		}
+		dev.Backend = b.detectLiveBackend(ctx, dev.Name)
+		if IsAmneziaBackend(dev.Backend) {
+			dev.Protocol = ProtocolAWG
+		} else {
+			dev.Protocol = ProtocolWG
 		}
 	}
 	return dev
@@ -167,31 +212,48 @@ func (b *HostBackend) EnsureInterface(ctx context.Context, desired DesiredInterf
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if err := b.createLink(ctx, desired.Name); err != nil {
+	proto := desired.Protocol
+	if proto == "" {
+		if IsAmneziaBackend(desired.Backend) || !desired.Amnezia.IsZero() {
+			proto = ProtocolAWG
+		} else {
+			proto = ProtocolWG
+		}
+	}
+	backend := desired.Backend
+	if backend == "" {
+		backend = BackendAuto
+	}
+	resolved, err := b.probe.ResolveBackend(ctx, proto, backend)
+	if err != nil {
 		return err
 	}
-	cfg := wgtypes.Config{ReplacePeers: false}
-	if !IsZeroKey(desired.PrivateKey) {
-		priv, err := wgtypes.ParseKey(desired.PrivateKey)
-		if err != nil {
-			return fmt.Errorf("private key: %w", err)
+	desired.ResolvedBackend = resolved
+
+	if err := b.ensureLink(ctx, desired.Name, resolved); err != nil {
+		return err
+	}
+
+	if useCLIForConfig(resolved) {
+		tool := b.toolForBackend(resolved)
+		if err := b.configureDeviceViaCLI(ctx, tool, desired.Name, desired); err != nil {
+			// Fall back to wgctrl if CLI missing (kernel amnezia without awg tools).
+			if err2 := b.configureDeviceWgctrl(desired); err2 != nil {
+				return fmt.Errorf("configure %s via %s: %v (wgctrl: %v)", desired.Name, tool, err, err2)
+			}
 		}
-		cfg.PrivateKey = &priv
-	}
-	if desired.ListenPort > 0 {
-		p := desired.ListenPort
-		cfg.ListenPort = &p
-	}
-	if desired.FwMark > 0 {
-		f := desired.FwMark
-		cfg.FirewallMark = &f
-	}
-	// Only call ConfigureDevice when there is something to set (avoid no-op errors).
-	if cfg.PrivateKey != nil || cfg.ListenPort != nil || cfg.FirewallMark != nil {
-		if err := b.client.ConfigureDevice(desired.Name, cfg); err != nil {
-			return fmt.Errorf("configure device: %w", err)
+		if proto == ProtocolAWG || IsAmneziaBackend(resolved) {
+			if err := b.setAmneziaParams(ctx, desired.Name, desired.Amnezia); err != nil {
+				// Soft: log-level surface by returning error so reconcile retries.
+				return fmt.Errorf("amnezia params: %w", err)
+			}
+		}
+	} else {
+		if err := b.configureDeviceWgctrl(desired); err != nil {
+			return err
 		}
 	}
+
 	if err := b.setMTU(ctx, desired.Name, desired.MTU); err != nil {
 		return err
 	}
@@ -209,6 +271,31 @@ func (b *HostBackend) EnsureInterface(ctx context.Context, desired DesiredInterf
 	return nil
 }
 
+func (b *HostBackend) configureDeviceWgctrl(desired DesiredInterface) error {
+	cfg := wgtypes.Config{ReplacePeers: false}
+	if !IsZeroKey(desired.PrivateKey) {
+		priv, err := wgtypes.ParseKey(desired.PrivateKey)
+		if err != nil {
+			return fmt.Errorf("private key: %w", err)
+		}
+		cfg.PrivateKey = &priv
+	}
+	if desired.ListenPort > 0 {
+		p := desired.ListenPort
+		cfg.ListenPort = &p
+	}
+	if desired.FwMark > 0 {
+		f := desired.FwMark
+		cfg.FirewallMark = &f
+	}
+	if cfg.PrivateKey != nil || cfg.ListenPort != nil || cfg.FirewallMark != nil {
+		if err := b.client.ConfigureDevice(desired.Name, cfg); err != nil {
+			return fmt.Errorf("configure device: %w", err)
+		}
+	}
+	return nil
+}
+
 // RemoveInterface implements Backend.
 func (b *HostBackend) RemoveInterface(ctx context.Context, name string) error {
 	b.mu.Lock()
@@ -217,7 +304,7 @@ func (b *HostBackend) RemoveInterface(ctx context.Context, name string) error {
 	b.clearInterfaceDNS(ctx, name)
 	b.clearInterfaceTC(ctx, name)
 	b.clearInterfaceRoutes(ctx, name)
-	return b.deleteLink(ctx, name)
+	return b.deleteLinkExtended(ctx, name)
 }
 
 // SetUp implements Backend.
@@ -234,6 +321,21 @@ func (b *HostBackend) ApplyPeers(ctx context.Context, iface string, peers []Desi
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	backend := b.detectLiveBackend(ctx, iface)
+	if useCLIForConfig(backend) {
+		tool := b.toolForBackend(backend)
+		if err := b.applyPeersViaCLI(ctx, tool, iface, peers); err != nil {
+			// Fall through to wgctrl if awg missing.
+			if err2 := b.applyPeersWgctrl(iface, peers); err2 != nil {
+				return fmt.Errorf("apply peers via %s: %v (wgctrl: %v)", tool, err, err2)
+			}
+		}
+		return nil
+	}
+	return b.applyPeersWgctrl(iface, peers)
+}
+
+func (b *HostBackend) applyPeersWgctrl(iface string, peers []DesiredPeer) error {
 	desired := make(map[string]DesiredPeer, len(peers))
 	cfgs := make([]wgtypes.PeerConfig, 0, len(peers)+4)
 	for _, p := range peers {

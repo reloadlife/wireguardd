@@ -17,6 +17,10 @@ type Device struct {
 	Addresses    []string // tunnel addresses from the link (ip addr)
 	Peers        []Peer
 	Up           bool
+	// Backend is best-effort detected: kernel|userspace|amnezia_kernel|amnezia_go.
+	Backend string
+	// Protocol is wg|awg when known.
+	Protocol string
 }
 
 // Peer is live peer state.
@@ -56,6 +60,15 @@ type DesiredInterface struct {
 	PostDown   string
 	Enabled    bool
 	Peers      []DesiredPeer
+
+	// Backend is auto|kernel|userspace|amnezia_kernel|amnezia_go (resolved before apply when auto).
+	Backend string
+	// Protocol is wg|awg.
+	Protocol string
+	// Amnezia holds interface-level AmneziaWG params (ignored for plain wg unless backend is amnezia).
+	Amnezia AmneziaParams
+	// ResolvedBackend is filled by the host backend after auto-resolution (observability).
+	ResolvedBackend string
 }
 
 // DesiredPeer is desired peer configuration.

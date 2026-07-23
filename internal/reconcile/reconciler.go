@@ -158,6 +158,11 @@ func (r *Reconciler) run(ctx context.Context) error {
 			})
 		}
 
+		am := wgbackend.AmneziaParams{}
+		if iface.AmneziaJSON != "" {
+			// Decode without importing encoding/json at call site thrice — small helper.
+			am = decodeAmneziaJSON(iface.AmneziaJSON)
+		}
 		di := wgbackend.DesiredInterface{
 			Name:       iface.Name,
 			PrivateKey: iface.PrivateKey,
@@ -174,6 +179,9 @@ func (r *Reconciler) run(ctx context.Context) error {
 			PostDown:   iface.PostDown,
 			Enabled:    iface.Enabled,
 			Peers:      desiredPeers,
+			Backend:    iface.Backend,
+			Protocol:   iface.Protocol,
+			Amnezia:    am,
 		}
 
 		wasEnabled, seen := r.hookState[iface.Name]
@@ -532,4 +540,9 @@ func (r *Reconciler) Loop(ctx context.Context, interval time.Duration) {
 			}
 		}
 	}
+}
+
+func decodeAmneziaJSON(s string) wgbackend.AmneziaParams {
+	// local import-free decode via encoding/json in this file — see amnezia_decode.go
+	return decodeAmneziaJSONImpl(s)
 }

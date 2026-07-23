@@ -135,6 +135,15 @@ func (c *Client) Version(ctx context.Context) (*VersionInfo, error) {
 	return &v, nil
 }
 
+// BackendCapabilities returns host backend availability.
+func (c *Client) BackendCapabilities(ctx context.Context) (*BackendCapabilities, error) {
+	var out BackendCapabilities
+	if err := c.do(ctx, "GET", "/v1/backends", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // ListInterfaces lists interfaces.
 func (c *Client) ListInterfaces(ctx context.Context) ([]Interface, error) {
 	var out []Interface
@@ -154,8 +163,19 @@ func (c *Client) GetInterface(ctx context.Context, name string) (*Interface, err
 }
 
 // CreateInterface creates an interface.
+// When req.CreateAWGPair is true, use CreateInterfacePair instead.
 func (c *Client) CreateInterface(ctx context.Context, req InterfaceCreateRequest) (*Interface, error) {
 	var out Interface
+	if err := c.do(ctx, http.MethodPost, "/v1/interfaces", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// CreateInterfacePair creates WG + AWG twin (listen_port and listen_port+10).
+func (c *Client) CreateInterfacePair(ctx context.Context, req InterfaceCreateRequest) (*InterfacePairResponse, error) {
+	req.CreateAWGPair = true
+	var out InterfacePairResponse
 	if err := c.do(ctx, http.MethodPost, "/v1/interfaces", req, &out); err != nil {
 		return nil, err
 	}

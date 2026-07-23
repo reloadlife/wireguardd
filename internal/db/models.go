@@ -22,8 +22,16 @@ type Interface struct {
 	DefaultKeepalive int       `json:"default_keepalive"`
 	PublicEndpoint   string    `json:"public_endpoint,omitempty"`
 	Enabled          bool      `json:"enabled"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	// Backend: auto | kernel | userspace | amnezia_kernel | amnezia_go
+	Backend string `json:"backend,omitempty"`
+	// Protocol: wg | awg
+	Protocol string `json:"protocol,omitempty"`
+	// AmneziaJSON is the raw AmneziaWG param blob stored in SQLite.
+	AmneziaJSON string `json:"-"`
+	// PairName links a plain WG iface to its AWG twin (or vice versa).
+	PairName  string    `json:"pair_name,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Peer is the desired peer configuration plus observed stats.

@@ -43,11 +43,37 @@ func Render(cfg *Config) string {
 	if cfg.Interface.SaveConfig {
 		b.WriteString("SaveConfig = true\n")
 	}
+	// AmneziaWG params (omitted when zero/empty).
+	writeAmneziaInt(&b, "Jc", cfg.Interface.Jc)
+	writeAmneziaInt(&b, "Jmin", cfg.Interface.Jmin)
+	writeAmneziaInt(&b, "Jmax", cfg.Interface.Jmax)
+	writeAmneziaInt(&b, "S1", cfg.Interface.S1)
+	writeAmneziaInt(&b, "S2", cfg.Interface.S2)
+	writeAmneziaInt(&b, "S3", cfg.Interface.S3)
+	writeAmneziaInt(&b, "S4", cfg.Interface.S4)
+	writeAmneziaStr(&b, "H1", cfg.Interface.H1)
+	writeAmneziaStr(&b, "H2", cfg.Interface.H2)
+	writeAmneziaStr(&b, "H3", cfg.Interface.H3)
+	writeAmneziaStr(&b, "H4", cfg.Interface.H4)
+	writeAmneziaStr(&b, "I1", cfg.Interface.I1)
+	writeAmneziaStr(&b, "I2", cfg.Interface.I2)
+	writeAmneziaStr(&b, "I3", cfg.Interface.I3)
+	writeAmneziaStr(&b, "I4", cfg.Interface.I4)
+	writeAmneziaStr(&b, "I5", cfg.Interface.I5)
 	if cfg.Interface.PeerDNS != "" {
 		fmt.Fprintf(&b, "# PeerDNS = %s\n", cfg.Interface.PeerDNS)
 	}
 	if cfg.Interface.PeerEndpoint != "" {
 		fmt.Fprintf(&b, "# PeerEndpoint = %s\n", cfg.Interface.PeerEndpoint)
+	}
+	if cfg.Interface.Backend != "" {
+		fmt.Fprintf(&b, "# Backend = %s\n", cfg.Interface.Backend)
+	}
+	if cfg.Interface.Protocol != "" {
+		fmt.Fprintf(&b, "# Protocol = %s\n", cfg.Interface.Protocol)
+	}
+	if cfg.Interface.PairName != "" {
+		fmt.Fprintf(&b, "# PairName = %s\n", cfg.Interface.PairName)
 	}
 
 	for _, p := range cfg.Peers {
@@ -102,5 +128,17 @@ func writeHooks(b *strings.Builder, key, val string) {
 			continue
 		}
 		fmt.Fprintf(b, "%s = %s\n", key, line)
+	}
+}
+
+func writeAmneziaInt(b *strings.Builder, key string, v int) {
+	if v != 0 {
+		fmt.Fprintf(b, "%s = %d\n", key, v)
+	}
+}
+
+func writeAmneziaStr(b *strings.Builder, key, v string) {
+	if v != "" {
+		fmt.Fprintf(b, "%s = %s\n", key, v)
 	}
 }

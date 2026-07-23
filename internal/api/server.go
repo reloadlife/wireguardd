@@ -88,6 +88,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/discover", s.handleDiscover)
 		r.Post("/adopt", s.handleAdopt)
 
+		r.Get("/backends", s.handleBackends)
 		r.Get("/interfaces", s.handleListInterfaces)
 		r.Post("/interfaces", s.handleCreateInterface)
 		r.Get("/interfaces/{name}", s.handleGetInterface)
