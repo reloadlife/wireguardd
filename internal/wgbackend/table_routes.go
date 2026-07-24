@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"github.com/advanced-wg/awgctrl-go/wgtypes"
 )
 
 // Table mode mirrors wg-quick Table= setting.
@@ -114,7 +114,7 @@ func (b *HostBackend) ensureDefaultRouteFwMark(ctx context.Context, desired Desi
 	}
 	if b.client != nil {
 		fm := mark
-		_ = b.client.ConfigureDevice(desired.Name, wgtypes.Config{FirewallMark: &fm})
+		_ = b.client.ConfigureDevice(ctx, desired.Name, wgtypes.Config{FirewallMark: &fm})
 	} else if b.runner != nil {
 		_, _ = b.runner.Run(ctx, "wg", "set", desired.Name, "fwmark", strconv.Itoa(mark))
 	}

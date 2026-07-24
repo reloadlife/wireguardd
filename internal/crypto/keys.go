@@ -3,7 +3,7 @@ package crypto
 import (
 	"fmt"
 
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"github.com/advanced-wg/awgctrl-go/wgtypes"
 )
 
 // KeyPair is a WireGuard private/public key pair (base64-encoded).
