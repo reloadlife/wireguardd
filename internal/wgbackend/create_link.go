@@ -113,13 +113,6 @@ func (b *HostBackend) toolForBackend(backend string) string {
 	return b.wgTool
 }
 
-// useCLIForConfig is kept for callers that still prefer the awg CLI path.
-// HostBackend.EnsureInterface/ApplyPeers now prefer awgctrl netlink and only
-// fall back to CLI when ConfigureDevice fails.
-func useCLIForConfig(backend string) bool {
-	return IsAmneziaBackend(backend)
-}
-
 // linkKind returns the rtnl kind (wireguard / amneziawg) or empty.
 func (b *HostBackend) linkKind(ctx context.Context, name string) string {
 	out, err := b.runner.Run(ctx, "ip", "-d", "link", "show", "dev", name)
