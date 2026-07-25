@@ -24,6 +24,14 @@ type DaemonConfig struct {
 	DB struct {
 		Path           string `mapstructure:"path"`
 		TimeseriesPath string `mapstructure:"timeseries_path"` // empty → <dir>/timeseries.db
+		// MemoryProfile selects SQLite page-cache + mmap budgets:
+		//   compact (default) | balanced | performance
+		// Explicit *_cache_mb / *_mmap_mb override the profile when > 0.
+		MemoryProfile     string `mapstructure:"memory_profile"`
+		StateCacheMB      int    `mapstructure:"state_cache_mb"`
+		StateMMapMB       int    `mapstructure:"state_mmap_mb"`
+		TimeseriesCacheMB int    `mapstructure:"timeseries_cache_mb"`
+		TimeseriesMMapMB  int    `mapstructure:"timeseries_mmap_mb"`
 	} `mapstructure:"db"`
 	Auth struct {
 		Token string `mapstructure:"token"`
@@ -33,11 +41,13 @@ type DaemonConfig struct {
 		Persistence           string `mapstructure:"persistence"`
 		HandshakeConnectedSec int    `mapstructure:"handshake_connected_sec"`
 		SampleInterval        string `mapstructure:"sample_interval"`
-		ReconcileInterval     string `mapstructure:"reconcile_interval"`
-		AllowHooks            bool   `mapstructure:"allow_hooks"`
-		BandwidthBackend      string `mapstructure:"bandwidth_backend"`
-		DNSBackend            string `mapstructure:"dns_backend"` // auto | resolvectl | resolvconf | none
-		UseMockBackend        bool   `mapstructure:"use_mock_backend"`
+		// SampleRetention is how long traffic_samples are kept (default 24h).
+		SampleRetention   string `mapstructure:"sample_retention"`
+		ReconcileInterval string `mapstructure:"reconcile_interval"`
+		AllowHooks        bool   `mapstructure:"allow_hooks"`
+		BandwidthBackend  string `mapstructure:"bandwidth_backend"`
+		DNSBackend        string `mapstructure:"dns_backend"` // auto | resolvectl | resolvconf | none
+		UseMockBackend    bool   `mapstructure:"use_mock_backend"`
 		// AdoptOnStart imports live WireGuard devices into the DB on boot (non-destructive).
 		AdoptOnStart bool `mapstructure:"adopt_on_start"`
 		// Optional binary overrides (empty → PATH: wireguard-go / amneziawg-go / awg).
@@ -85,6 +95,7 @@ func LoadDaemon(path string) (*DaemonConfig, error) {
 	_ = v.BindEnv("auth.token", "WIREGUARDD_AUTH_TOKEN", "WIREGUARDD_API_TOKEN")
 	_ = v.BindEnv("db.path", "WIREGUARDD_DB_PATH")
 	_ = v.BindEnv("db.timeseries_path", "WIREGUARDD_DB_TIMESERIES_PATH")
+	_ = v.BindEnv("db.memory_profile", "WIREGUARDD_DB_MEMORY_PROFILE")
 	_ = v.BindEnv("listen.http", "WIREGUARDD_LISTEN_HTTP")
 
 	var cfg DaemonConfig
@@ -104,6 +115,15 @@ func LoadDaemon(path string) (*DaemonConfig, error) {
 		return nil, fmt.Errorf("wireguard.bandwidth_backend %q invalid (want tc|nft|none)", cfg.WireGuard.BandwidthBackend)
 	}
 	cfg.WireGuard.DNSBackend = strings.ToLower(strings.TrimSpace(cfg.WireGuard.DNSBackend))
+	cfg.DB.MemoryProfile = strings.ToLower(strings.TrimSpace(cfg.DB.MemoryProfile))
+	switch cfg.DB.MemoryProfile {
+	case "", "compact", "balanced", "performance":
+		if cfg.DB.MemoryProfile == "" {
+			cfg.DB.MemoryProfile = "compact"
+		}
+	default:
+		return nil, fmt.Errorf("db.memory_profile %q invalid (want compact|balanced|performance)", cfg.DB.MemoryProfile)
+	}
 	return &cfg, nil
 }
 
@@ -116,11 +136,13 @@ func setDaemonDefaults(v *viper.Viper) {
 	v.SetDefault("snmp.community", "change-me-snmp")
 	v.SetDefault("snmp.enterprise_oid", "1.3.6.1.4.1.66666.1")
 	v.SetDefault("db.path", "wireguardd.db")
+	v.SetDefault("db.memory_profile", "compact")
 	v.SetDefault("auth.token", "change-me")
 	v.SetDefault("wireguard.conf_dir", "/etc/wireguard")
 	v.SetDefault("wireguard.persistence", "hybrid")
 	v.SetDefault("wireguard.handshake_connected_sec", 180)
 	v.SetDefault("wireguard.sample_interval", "5s")
+	v.SetDefault("wireguard.sample_retention", "24h")
 	v.SetDefault("wireguard.reconcile_interval", "5s")
 	v.SetDefault("wireguard.allow_hooks", false)
 	v.SetDefault("wireguard.bandwidth_backend", "tc")
@@ -153,4 +175,54 @@ func (c *DaemonConfig) SampleInterval() time.Duration {
 		return 5 * time.Second
 	}
 	return d
+}
+
+// SampleRetention parses how long traffic samples are kept.
+func (c *DaemonConfig) SampleRetention() time.Duration {
+	d, err := time.ParseDuration(c.WireGuard.SampleRetention)
+	if err != nil || d <= 0 {
+		return 24 * time.Hour
+	}
+	return d
+}
+
+// StateSQLiteMem returns the page-cache/mmap budget for state.db.
+func (c *DaemonConfig) StateSQLiteMem() (cacheMiB, mmapMiB int) {
+	cacheMiB, mmapMiB = profileMem(c.DB.MemoryProfile, false)
+	if c.DB.StateCacheMB > 0 {
+		cacheMiB = c.DB.StateCacheMB
+	}
+	if c.DB.StateMMapMB > 0 {
+		mmapMiB = c.DB.StateMMapMB
+	}
+	return cacheMiB, mmapMiB
+}
+
+// TimeseriesSQLiteMem returns the page-cache/mmap budget for timeseries.db.
+func (c *DaemonConfig) TimeseriesSQLiteMem() (cacheMiB, mmapMiB int) {
+	cacheMiB, mmapMiB = profileMem(c.DB.MemoryProfile, true)
+	if c.DB.TimeseriesCacheMB > 0 {
+		cacheMiB = c.DB.TimeseriesCacheMB
+	}
+	if c.DB.TimeseriesMMapMB > 0 {
+		mmapMiB = c.DB.TimeseriesMMapMB
+	}
+	return cacheMiB, mmapMiB
+}
+
+func profileMem(profile string, timeseries bool) (cacheMiB, mmapMiB int) {
+	switch strings.ToLower(strings.TrimSpace(profile)) {
+	case "performance":
+		if timeseries {
+			return 128, 512
+		}
+		return 64, 256
+	case "balanced":
+		return 32, 128
+	default: // compact
+		if timeseries {
+			return 16, 64
+		}
+		return 16, 64
+	}
 }

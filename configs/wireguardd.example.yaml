@@ -12,10 +12,23 @@ snmp:
 
 db:
   # Two SQLite files for isolation under high sample volume:
-  #   state.db       — interfaces/peers/events (SoT), performance pragmas
-  #   timeseries.db  — traffic_samples only (128MiB cache, 512MiB mmap, no FKs)
+  #   state.db       — interfaces/peers/events (SoT)
+  #   timeseries.db  — traffic_samples only (no FKs)
   path: "/var/lib/wireguardd/state.db"
   # timeseries_path: "/var/lib/wireguardd/timeseries.db"  # default: <dir>/timeseries.db
+  #
+  # SQLite page-cache + mmap budgets (MiB). Defaults are edge-safe so a ~1 GiB
+  # VPN node does not OOM-kill wireguardd for traffic-history caching.
+  #   compact (default) — 16/64 state + 16/64 timeseries
+  #   balanced          — 32/128 both
+  #   performance       — 64/256 state + 128/512 timeseries (large hosts only)
+  memory_profile: compact
+  # Optional hard overrides (any >0 replaces the profile value):
+  # state_cache_mb: 16
+  # state_mmap_mb: 64
+  # timeseries_cache_mb: 16
+  # timeseries_mmap_mb: 64
+
 
 auth:
   token: "change-me"
@@ -25,6 +38,9 @@ wireguard:
   persistence: "hybrid" # database | wg-quick | hybrid
   handshake_connected_sec: 180
   sample_interval: 5s
+  # How long traffic_samples are retained (disk + eventual RSS). 24h default.
+  # On small nodes consider 6h–12h.
+  sample_retention: 24h
   reconcile_interval: 5s
   allow_hooks: false
   # Per-peer bandwidth (bytes/sec on peer.bandwidth_*_bps fields):

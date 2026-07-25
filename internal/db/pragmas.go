@@ -11,11 +11,15 @@ import (
 //
 // Profile summary:
 //   - WAL journal + NORMAL sync (safe with WAL, much faster than FULL)
-//   - large page cache + mmap for read-heavy window queries
+//   - bounded page cache + mmap (see SQLiteMem; defaults are edge-safe)
 //   - temp objects in memory
 //   - busy_timeout so writers retry instead of failing
 //   - incremental auto_vacuum when the DB is still empty (new installs)
-func applyPerformancePragmas(sqlDB *sql.DB, memory bool) error {
+func applyPerformancePragmas(sqlDB *sql.DB, memory bool, mem SQLiteMem) error {
+	mem = mem.Normalize(false)
+	cachePragma := -(mem.CacheMiB * 1024)
+	mmapBytes := int64(mem.MMapMiB) * 1024 * 1024
+
 	// Core performance + safety set. Order matters lightly: journal_mode first.
 	stmts := []string{
 		`PRAGMA foreign_keys=ON`,
@@ -23,16 +27,14 @@ func applyPerformancePragmas(sqlDB *sql.DB, memory bool) error {
 		`PRAGMA temp_store=MEMORY`,
 		`PRAGMA recursive_triggers=ON`,
 		`PRAGMA secure_delete=OFF`,
-		// Cache: negative cache_size is KiB → 64 MiB page cache.
-		`PRAGMA cache_size=-65536`,
+		fmt.Sprintf(`PRAGMA cache_size=%d`, cachePragma),
 	}
 	if !memory {
 		stmts = append([]string{
 			`PRAGMA journal_mode=WAL`,
 			// NORMAL is the recommended WAL durability/speed trade-off.
 			`PRAGMA synchronous=NORMAL`,
-			// Memory-map the DB file for faster large sequential/range reads.
-			`PRAGMA mmap_size=268435456`, // 256 MiB
+			fmt.Sprintf(`PRAGMA mmap_size=%d`, mmapBytes),
 			// Keep WAL from growing without bound under heavy sample inserts.
 			`PRAGMA wal_autocheckpoint=1000`,
 			`PRAGMA journal_size_limit=67108864`, // 64 MiB

@@ -20,15 +20,19 @@ func DefaultTimeseriesPath(statePath string) string {
 	return filepath.Join(dir, "timeseries.db")
 }
 
-// openSQLite opens a SQLite DB with the performance profile.
-// timeseries=true uses a write-heavy tuned profile (no FK, larger cache).
-func openSQLite(path string, timeseries bool) (*sql.DB, bool, error) {
+// openSQLite opens a SQLite DB with the given memory budget.
+// timeseries=true disables FKs (peer rows live in state.db).
+func openSQLite(path string, timeseries bool, mem SQLiteMem) (*sql.DB, bool, error) {
 	memory := path == "" || path == ":memory:" || strings.HasPrefix(path, "file:") && strings.Contains(path, "mode=memory")
 	if !memory && !strings.HasPrefix(path, "file:") {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return nil, false, fmt.Errorf("create db dir: %w", err)
 		}
 	}
+
+	mem = mem.Normalize(timeseries)
+	cachePragma := -(mem.CacheMiB * 1024)
+	mmapBytes := int64(mem.MMapMiB) * 1024 * 1024
 
 	var dsn string
 	switch {
@@ -44,24 +48,17 @@ func openSQLite(path string, timeseries bool) (*sql.DB, bool, error) {
 		}
 		dsn = fmt.Sprintf("file:%s?mode=memory&cache=shared&_pragma=busy_timeout(10000)&_pragma=temp_store(MEMORY)&_pragma=synchronous(OFF)", name)
 	default:
-		// Timeseries: no foreign_keys (peer rows live in state.db), bigger cache for hot inserts.
+		// Timeseries: no foreign_keys (peer rows live in state.db).
 		if timeseries {
-			dsn = "file:" + path +
-				"?_pragma=busy_timeout(10000)" +
-				"&_pragma=journal_mode(WAL)" +
-				"&_pragma=synchronous(NORMAL)" +
-				"&_pragma=temp_store(MEMORY)" +
-				"&_pragma=cache_size(-131072)" + // 128 MiB
-				"&_pragma=mmap_size(536870912)" // 512 MiB
+			dsn = fmt.Sprintf(
+				"file:%s?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=temp_store(MEMORY)&_pragma=cache_size(%d)&_pragma=mmap_size(%d)",
+				path, cachePragma, mmapBytes,
+			)
 		} else {
-			dsn = "file:" + path +
-				"?_pragma=busy_timeout(10000)" +
-				"&_pragma=foreign_keys(1)" +
-				"&_pragma=journal_mode(WAL)" +
-				"&_pragma=synchronous(NORMAL)" +
-				"&_pragma=temp_store(MEMORY)" +
-				"&_pragma=cache_size(-65536)" +
-				"&_pragma=mmap_size(268435456)"
+			dsn = fmt.Sprintf(
+				"file:%s?_pragma=busy_timeout(10000)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=temp_store(MEMORY)&_pragma=cache_size(%d)&_pragma=mmap_size(%d)",
+				path, cachePragma, mmapBytes,
+			)
 		}
 	}
 
@@ -77,14 +74,16 @@ func openSQLite(path string, timeseries bool) (*sql.DB, bool, error) {
 	if !memory {
 		enableIncrementalVacuum(sqlDB)
 	}
-	if err := applyPerformancePragmas(sqlDB, memory); err != nil {
+	if err := applyPerformancePragmas(sqlDB, memory, mem); err != nil {
 		_ = sqlDB.Close()
 		return nil, false, err
 	}
-	// Timeseries: prefer a larger cache after shared pragma set.
+	// Re-assert connection-specific settings after shared pragma set.
+	if !memory {
+		_, _ = sqlDB.Exec(fmt.Sprintf(`PRAGMA cache_size=%d`, cachePragma))
+		_, _ = sqlDB.Exec(fmt.Sprintf(`PRAGMA mmap_size=%d`, mmapBytes))
+	}
 	if timeseries && !memory {
-		_, _ = sqlDB.Exec(`PRAGMA cache_size=-131072`)
-		_, _ = sqlDB.Exec(`PRAGMA mmap_size=536870912`)
 		_, _ = sqlDB.Exec(`PRAGMA foreign_keys=OFF`)
 	}
 	if !memory && path != "" && !strings.HasPrefix(path, "file:") {

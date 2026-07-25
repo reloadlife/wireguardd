@@ -23,7 +23,9 @@ type Config struct {
 	ConfDir               string
 	HandshakeConnectedSec int
 	SampleInterval        time.Duration
-	AllowHooks            bool
+	// SampleRetention is how long traffic_samples are kept. Zero → 24h.
+	SampleRetention time.Duration
+	AllowHooks      bool
 }
 
 // MetricsObserver records reconcile timing (optional).
@@ -52,6 +54,9 @@ type Reconciler struct {
 func New(store *db.Store, backend wgbackend.Backend, cache *stats.Cache, cfg Config, log *slog.Logger) *Reconciler {
 	if cfg.HandshakeConnectedSec <= 0 {
 		cfg.HandshakeConnectedSec = 180
+	}
+	if cfg.SampleRetention <= 0 {
+		cfg.SampleRetention = 24 * time.Hour
 	}
 	if log == nil {
 		log = slog.Default()
@@ -293,7 +298,7 @@ func (r *Reconciler) run(ctx context.Context) error {
 	r.cache.Retain(keepIfaces, keepPeers)
 
 	// Purge old samples occasionally
-	_, _ = r.store.PurgeSamples(ctx, 24*time.Hour)
+	_, _ = r.store.PurgeSamples(ctx, r.cfg.SampleRetention)
 	return nil
 }
 

@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -111,13 +112,14 @@ func TestSQLitePerformanceMode(t *testing.T) {
 	require.Equal(t, "1", pair.State.Synchronous)
 	require.Equal(t, "1", pair.State.ForeignKeys)
 	require.Equal(t, "2", pair.State.TempStore)
-	require.Equal(t, "-65536", pair.State.CacheSize)
+	// Edge-safe defaults: 16 MiB page cache (PRAGMA cache_size is KiB, negative).
+	require.Equal(t, fmt.Sprintf("%d", -(DefaultStateCacheMiB*1024)), pair.State.CacheSize)
 	require.Equal(t, "2", pair.State.AutoVacuum)
-	// timeseries — larger cache, no FKs
+	// timeseries — same compact default, no FKs
 	require.Equal(t, "wal", strings.ToLower(pair.Timeseries.JournalMode))
 	require.Equal(t, "1", pair.Timeseries.Synchronous)
 	require.Equal(t, "0", pair.Timeseries.ForeignKeys)
-	require.Equal(t, "-131072", pair.Timeseries.CacheSize)
+	require.Equal(t, fmt.Sprintf("%d", -(DefaultTimeseriesCacheMiB*1024)), pair.Timeseries.CacheSize)
 	require.Equal(t, "2", pair.Timeseries.AutoVacuum)
 
 	// samples must not live on the state connection
@@ -133,6 +135,30 @@ func TestSQLitePerformanceMode(t *testing.T) {
 func TestDefaultTimeseriesPath(t *testing.T) {
 	require.Equal(t, "/var/lib/wireguardd/timeseries.db", DefaultTimeseriesPath("/var/lib/wireguardd/state.db"))
 	require.Contains(t, DefaultTimeseriesPath(":memory:"), "mode=memory")
+}
+
+func TestSQLiteCustomMemoryBudgets(t *testing.T) {
+	dir := t.TempDir()
+	s, err := OpenWithOptions(OpenOptions{
+		Path:          dir + "/state.db",
+		StateMem:      SQLiteMem{CacheMiB: 8, MMapMiB: 32},
+		TimeseriesMem: SQLiteMem{CacheMiB: 4, MMapMiB: 16},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	pair, err := s.PerformanceInfoBoth()
+	require.NoError(t, err)
+	require.Equal(t, "-8192", pair.State.CacheSize)
+	require.Equal(t, "33554432", pair.State.MMapSize)
+	require.Equal(t, "-4096", pair.Timeseries.CacheSize)
+	require.Equal(t, "16777216", pair.Timeseries.MMapSize)
+}
+
+func TestSQLiteMemNormalize(t *testing.T) {
+	require.Equal(t, DefaultStateCacheMiB, SQLiteMem{}.Normalize(false).CacheMiB)
+	require.Equal(t, DefaultTimeseriesCacheMiB, SQLiteMem{}.Normalize(true).CacheMiB)
+	require.Equal(t, 48, SQLiteMem{CacheMiB: 48}.Normalize(false).CacheMiB)
 }
 
 func TestInsertSamplesBatch(t *testing.T) {

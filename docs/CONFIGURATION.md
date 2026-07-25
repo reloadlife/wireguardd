@@ -16,6 +16,10 @@ Default path after install: `/etc/wireguardd/config.yaml`
 | `listen.metrics` | Prometheus listen (empty to disable dedicated listener) |
 | `db.path` | State SQLite path |
 | `db.timeseries_path` | Traffic samples SQLite (default: `<dir>/timeseries.db`) |
+| `db.memory_profile` | SQLite cache/mmap budget: `compact` (default, edge-safe) \| `balanced` \| `performance` |
+| `db.state_cache_mb` / `db.state_mmap_mb` | Optional overrides for state.db (MiB; `>0` wins over profile) |
+| `db.timeseries_cache_mb` / `db.timeseries_mmap_mb` | Optional overrides for timeseries.db (MiB) |
+| `wireguard.sample_retention` | Traffic sample TTL (default `24h`; lower on small nodes) |
 | `wireguard.conf_dir` | Directory for `*.conf` export / adopt merge |
 | `wireguard.persistence` | `database` \| `wg-quick` \| `hybrid` |
 | `wireguard.bandwidth_backend` | `tc` \| `nft` \| `none` (default `tc`; `/readyz` checks `tc`/`nft` binary) |
@@ -36,10 +40,28 @@ Prefix `WIREGUARDD_`, nested keys with `_`:
 ```bash
 export WIREGUARDD_AUTH_TOKEN=...
 export WIREGUARDD_DB_PATH=/var/lib/wireguardd/state.db
+export WIREGUARDD_DB_MEMORY_PROFILE=compact
 export WIREGUARDD_LISTEN_HTTP=127.0.0.1:51880
 ```
 
 Also: `WIREGUARDD_API_TOKEN` maps to `auth.token`.
+
+### SQLite memory (why wireguardd RSS can look large)
+
+Traffic sampling writes to `timeseries.db` every `sample_interval`. SQLite keeps a
+**page cache** in-process; older defaults reserved up to **128+64 MiB** cache plus
+large mmap windows, which made wireguardd the largest process (and OOM victim) on
+~1 GiB fleet nodes even with few peers.
+
+Defaults are now **compact** (~16 MiB cache per DB). Raise only if graphs feel slow
+on a multi-GiB host:
+
+```yaml
+db:
+  memory_profile: performance   # large hosts
+# or surgical:
+#   timeseries_cache_mb: 32
+```
 
 ## wireguardctl
 

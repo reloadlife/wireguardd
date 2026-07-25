@@ -33,6 +33,9 @@ type OpenOptions struct {
 	Path string
 	// TimeseriesPath is the samples database. Empty → DefaultTimeseriesPath(Path).
 	TimeseriesPath string
+	// StateMem / TimeseriesMem bound SQLite page cache + mmap (zero → edge defaults).
+	StateMem      SQLiteMem
+	TimeseriesMem SQLiteMem
 }
 
 // Open opens state + timeseries databases (timeseries path auto-derived).
@@ -46,9 +49,11 @@ func OpenWithOptions(opts OpenOptions) (*Store, error) {
 	if tsPath == "" {
 		tsPath = DefaultTimeseriesPath(opts.Path)
 	}
+	stateMemOpts := opts.StateMem.Normalize(false)
+	tsMemOpts := opts.TimeseriesMem.Normalize(true)
 
 	// 1) Open timeseries first and ensure schema (needed for legacy sample migrate).
-	tsDB, tsMem, err := openSQLite(tsPath, true)
+	tsDB, tsMem, err := openSQLite(tsPath, true, tsMemOpts)
 	if err != nil {
 		return nil, fmt.Errorf("open timeseries db: %w", err)
 	}
@@ -58,7 +63,7 @@ func OpenWithOptions(opts OpenOptions) (*Store, error) {
 	}
 
 	// 2) Open state DB.
-	stateDB, stateMem, err := openSQLite(opts.Path, false)
+	stateDB, stateMem, err := openSQLite(opts.Path, false, stateMemOpts)
 	if err != nil {
 		_ = tsDB.Close()
 		return nil, fmt.Errorf("open state db: %w", err)
@@ -85,20 +90,24 @@ func OpenWithOptions(opts OpenOptions) (*Store, error) {
 	}
 
 	// Re-apply pragmas after goose.
-	if err := applyPerformancePragmas(stateDB, stateMem); err != nil {
+	if err := applyPerformancePragmas(stateDB, stateMem, stateMemOpts); err != nil {
 		_ = stateDB.Close()
 		_ = tsDB.Close()
 		return nil, fmt.Errorf("state pragmas: %w", err)
 	}
-	if err := applyPerformancePragmas(tsDB, tsMem); err != nil {
+	if err := applyPerformancePragmas(tsDB, tsMem, tsMemOpts); err != nil {
 		_ = stateDB.Close()
 		_ = tsDB.Close()
 		return nil, fmt.Errorf("timeseries pragmas: %w", err)
 	}
 	if !tsMem {
-		_, _ = tsDB.Exec(`PRAGMA cache_size=-131072`)
-		_, _ = tsDB.Exec(`PRAGMA mmap_size=536870912`)
+		_, _ = tsDB.Exec(fmt.Sprintf(`PRAGMA cache_size=%d`, -(tsMemOpts.CacheMiB * 1024)))
+		_, _ = tsDB.Exec(fmt.Sprintf(`PRAGMA mmap_size=%d`, int64(tsMemOpts.MMapMiB)*1024*1024))
 		_, _ = tsDB.Exec(`PRAGMA foreign_keys=OFF`)
+	}
+	if !stateMem {
+		_, _ = stateDB.Exec(fmt.Sprintf(`PRAGMA cache_size=%d`, -(stateMemOpts.CacheMiB * 1024)))
+		_, _ = stateDB.Exec(fmt.Sprintf(`PRAGMA mmap_size=%d`, int64(stateMemOpts.MMapMiB)*1024*1024))
 	}
 	_, _ = stateDB.Exec(`PRAGMA optimize`)
 	_, _ = tsDB.Exec(`PRAGMA optimize`)

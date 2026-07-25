@@ -43,9 +43,19 @@ func New(cfg *config.DaemonConfig, log *slog.Logger) *App {
 
 // Run starts the daemon until signal.
 func (a *App) Run(ctx context.Context) error {
+	stateCacheMB, stateMMapMB := a.cfg.StateSQLiteMem()
+	tsCacheMB, tsMMapMB := a.cfg.TimeseriesSQLiteMem()
 	store, err := db.OpenWithOptions(db.OpenOptions{
 		Path:           a.cfg.DB.Path,
 		TimeseriesPath: a.cfg.DB.TimeseriesPath,
+		StateMem: db.SQLiteMem{
+			CacheMiB: stateCacheMB,
+			MMapMiB:  stateMMapMB,
+		},
+		TimeseriesMem: db.SQLiteMem{
+			CacheMiB: tsCacheMB,
+			MMapMiB:  tsMMapMB,
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
@@ -54,6 +64,12 @@ func (a *App) Run(ctx context.Context) error {
 	a.log.Info("sqlite open",
 		"state", a.cfg.DB.Path,
 		"timeseries", store.TimeseriesPath(),
+		"memory_profile", a.cfg.DB.MemoryProfile,
+		"state_cache_mb", stateCacheMB,
+		"state_mmap_mb", stateMMapMB,
+		"timeseries_cache_mb", tsCacheMB,
+		"timeseries_mmap_mb", tsMMapMB,
+		"sample_retention", a.cfg.SampleRetention().String(),
 	)
 
 	var backend wgbackend.Backend
@@ -98,6 +114,7 @@ func (a *App) Run(ctx context.Context) error {
 		ConfDir:               a.cfg.WireGuard.ConfDir,
 		HandshakeConnectedSec: a.cfg.WireGuard.HandshakeConnectedSec,
 		SampleInterval:        a.cfg.SampleInterval(),
+		SampleRetention:       a.cfg.SampleRetention(),
 		AllowHooks:            a.cfg.WireGuard.AllowHooks,
 	}, a.log)
 	rec.SetMetrics(collector)
