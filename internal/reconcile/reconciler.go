@@ -23,7 +23,8 @@ type Config struct {
 	ConfDir               string
 	HandshakeConnectedSec int
 	SampleInterval        time.Duration
-	// SampleRetention is how long traffic_samples are kept. Zero → 24h.
+	// SampleRetention is how long traffic_samples are kept. Zero → 7d.
+	// Only the last rawSampleWindow is full resolution; older rows are thinned.
 	SampleRetention time.Duration
 	AllowHooks      bool
 }
@@ -56,7 +57,7 @@ func New(store *db.Store, backend wgbackend.Backend, cache *stats.Cache, cfg Con
 		cfg.HandshakeConnectedSec = 180
 	}
 	if cfg.SampleRetention <= 0 {
-		cfg.SampleRetention = 24 * time.Hour
+		cfg.SampleRetention = 7 * 24 * time.Hour
 	}
 	if log == nil {
 		log = slog.Default()
@@ -547,6 +548,7 @@ func (r *Reconciler) Loop(ctx context.Context, interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	_ = r.RunOnce(ctx)
+	go r.compactLoop(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -555,6 +557,43 @@ func (r *Reconciler) Loop(ctx context.Context, interval time.Duration) {
 			if err := r.RunOnce(ctx); err != nil {
 				r.log.Error("reconcile", "err", err)
 			}
+		}
+	}
+}
+
+// Full-resolution samples are kept for rawSampleWindow, then thinned to one per
+// thinBucket until SampleRetention. ponytail: hardcoded — an hour covers the
+// 1m..1h windows at sample precision and costs the 24h window at most 10 min.
+const (
+	rawSampleWindow = time.Hour
+	thinBucket      = 10 * time.Minute
+)
+
+// compactLoop thins aged samples every thinBucket. It runs apart from RunOnce
+// so a first pass over a large backlog never stalls peer reconciliation:
+// state.db has its own connection, only sample inserts wait on this one.
+func (r *Reconciler) compactLoop(ctx context.Context) {
+	var done time.Time // everything before this is already thinned
+	t := time.NewTicker(thinBucket)
+	defer t.Stop()
+	for {
+		to := time.Now().UTC().Add(-rawSampleWindow).Truncate(thinBucket)
+		from := done
+		if from.IsZero() {
+			from = to.Add(-r.cfg.SampleRetention).Truncate(thinBucket)
+		}
+		if n, err := r.store.ThinSamples(ctx, from, to); err != nil {
+			r.log.Warn("thin samples", "err", err)
+		} else {
+			done = to
+			if n > 0 {
+				r.log.Info("thinned samples", "rows", n)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
 		}
 	}
 }

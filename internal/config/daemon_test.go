@@ -49,7 +49,7 @@ auth:
 func TestSampleRetention(t *testing.T) {
 	cfg, err := LoadDaemon("")
 	require.NoError(t, err)
-	require.Equal(t, 24*time.Hour, cfg.SampleRetention())
+	require.Equal(t, 7*24*time.Hour, cfg.SampleRetention())
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cfg.yaml")

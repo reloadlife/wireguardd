@@ -41,7 +41,8 @@ type DaemonConfig struct {
 		Persistence           string `mapstructure:"persistence"`
 		HandshakeConnectedSec int    `mapstructure:"handshake_connected_sec"`
 		SampleInterval        string `mapstructure:"sample_interval"`
-		// SampleRetention is how long traffic_samples are kept (default 24h).
+		// SampleRetention is how long traffic_samples are kept (default 7d;
+		// full resolution for the last hour, one per 10 min before that).
 		SampleRetention   string `mapstructure:"sample_retention"`
 		ReconcileInterval string `mapstructure:"reconcile_interval"`
 		AllowHooks        bool   `mapstructure:"allow_hooks"`
@@ -142,7 +143,7 @@ func setDaemonDefaults(v *viper.Viper) {
 	v.SetDefault("wireguard.persistence", "hybrid")
 	v.SetDefault("wireguard.handshake_connected_sec", 180)
 	v.SetDefault("wireguard.sample_interval", "5s")
-	v.SetDefault("wireguard.sample_retention", "24h")
+	v.SetDefault("wireguard.sample_retention", "168h")
 	v.SetDefault("wireguard.reconcile_interval", "5s")
 	v.SetDefault("wireguard.allow_hooks", false)
 	v.SetDefault("wireguard.bandwidth_backend", "tc")
@@ -181,7 +182,7 @@ func (c *DaemonConfig) SampleInterval() time.Duration {
 func (c *DaemonConfig) SampleRetention() time.Duration {
 	d, err := time.ParseDuration(c.WireGuard.SampleRetention)
 	if err != nil || d <= 0 {
-		return 24 * time.Hour
+		return 7 * 24 * time.Hour
 	}
 	return d
 }

@@ -99,6 +99,54 @@ DELETE FROM traffic_samples WHERE id IN (
 	return total, nil
 }
 
+// thinBoundLayout formats slice bounds without a zone suffix so they sort
+// correctly against RFC3339Nano rows: "…T10:00:00" sorts before both
+// "…T10:00:00Z" and "…T10:00:00.5Z", whereas "…T10:00:00Z" sorts AFTER the
+// fractional one and would push it into the previous slice.
+const thinBoundLayout = "2006-01-02T15:04:05"
+
+// ThinSamples downsamples rows in [from, to) to the newest row per peer per
+// 10-minute bucket. Rows carry cumulative counters, so a kept row is still an
+// exact baseline for window deltas — only chart resolution is lost.
+//
+// Works in one-hour slices with a TRUNCATE checkpoint after each, so neither a
+// first pass over a large backlog nor a starved auto-checkpoint can grow the
+// WAL past one slice of deletes (sky-ams-1 filled its disk with a 2 GB WAL).
+// Pass 10-minute-aligned bounds so a bucket is never split across calls.
+func (s *Store) ThinSamples(ctx context.Context, from, to time.Time) (int64, error) {
+	ts := s.tsDB()
+	var total int64
+	for lo := from.UTC(); lo.Before(to); lo = lo.Add(time.Hour) {
+		hi := lo.Add(time.Hour)
+		if hi.After(to) {
+			hi = to.UTC()
+		}
+		a, b := lo.Format(thinBoundLayout), hi.Format(thinBoundLayout)
+		// substr(sampled_at, 1, 15) is "2006-01-02T15:0" — one 10-minute bucket.
+		res, err := ts.ExecContext(ctx, `
+DELETE FROM traffic_samples
+WHERE sampled_at >= ? AND sampled_at < ? AND id NOT IN (
+  SELECT MAX(id) FROM traffic_samples
+  WHERE sampled_at >= ? AND sampled_at < ?
+  GROUP BY peer_id, substr(sampled_at, 1, 15)
+)`, a, b, a, b)
+		if err != nil {
+			return total, fmt.Errorf("thin samples %s: %w", a, err)
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			total += n
+			_, _ = ts.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
+		}
+		if err := ctx.Err(); err != nil {
+			return total, err
+		}
+	}
+	if total > 0 {
+		s.incrementalVacuumTS(1000)
+	}
+	return total, nil
+}
+
 // DeletePeerSamples removes all samples for a peer (call when peer is deleted).
 func (s *Store) DeletePeerSamples(ctx context.Context, peerID int64) error {
 	_, err := s.tsDB().ExecContext(ctx, `DELETE FROM traffic_samples WHERE peer_id = ?`, peerID)
