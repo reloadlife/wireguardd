@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"os"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -11,9 +12,12 @@ import (
 // Collector exports WireGuard stats from the cache.
 type Collector struct {
 	cache      *stats.Cache
+	reg        prometheus.Registerer
 	up         prometheus.Gauge
 	reconcile  *prometheus.HistogramVec
 	reconcileE prometheus.Counter
+	walBlocked *prometheus.CounterVec
+	walLastOK  *prometheus.GaugeVec
 }
 
 // New registers process-level metrics and returns a collector that scrapes the cache.
@@ -23,6 +27,7 @@ func New(cache *stats.Cache, reg prometheus.Registerer) *Collector {
 	}
 	c := &Collector{
 		cache: cache,
+		reg:   reg,
 		up: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "wireguardd_up",
 			Help: "1 if wireguardd is up",
@@ -36,11 +41,21 @@ func New(cache *stats.Cache, reg prometheus.Registerer) *Collector {
 			Name: "wireguardd_reconcile_errors_total",
 			Help: "Reconcile errors",
 		}),
+		walBlocked: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "wireguardd_sqlite_wal_checkpoint_blocked_total",
+			Help: "Periodic WAL checkpoints that could not copy every frame back (a reader pins the WAL)",
+		}, []string{"db"}),
+		walLastOK: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "wireguardd_sqlite_wal_last_checkpoint_timestamp_seconds",
+			Help: "Unix time of the last complete WAL checkpoint",
+		}, []string{"db"}),
 	}
 	c.up.Set(1)
 	_ = reg.Register(c.up)
 	_ = reg.Register(c.reconcile)
 	_ = reg.Register(c.reconcileE)
+	_ = reg.Register(c.walBlocked)
+	_ = reg.Register(c.walLastOK)
 	_ = reg.Register(newCacheCollector(cache))
 	return c
 }
@@ -50,6 +65,45 @@ func (c *Collector) ObserveReconcile(d time.Duration, err error) {
 	c.reconcile.WithLabelValues().Observe(d.Seconds())
 	if err != nil {
 		c.reconcileE.Inc()
+	}
+}
+
+// ObserveWALCheckpoint records one periodic checkpoint of db ("state"/"timeseries").
+func (c *Collector) ObserveWALCheckpoint(db string, complete bool) {
+	if complete {
+		c.walLastOK.WithLabelValues(db).SetToCurrentTime()
+		return
+	}
+	c.walBlocked.WithLabelValues(db).Inc()
+}
+
+// WatchWAL exports wireguardd_sqlite_wal_bytes{db} for each db → -wal path,
+// stat'd at scrape time so a runaway WAL is visible between checkpoints.
+func (c *Collector) WatchWAL(files map[string]string) {
+	if len(files) == 0 {
+		return
+	}
+	_ = c.reg.Register(&walCollector{
+		files: files,
+		desc: prometheus.NewDesc("wireguardd_sqlite_wal_bytes",
+			"Size of the SQLite -wal file on disk", []string{"db"}, nil),
+	})
+}
+
+type walCollector struct {
+	files map[string]string
+	desc  *prometheus.Desc
+}
+
+func (w *walCollector) Describe(ch chan<- *prometheus.Desc) { ch <- w.desc }
+
+func (w *walCollector) Collect(ch chan<- prometheus.Metric) {
+	for db, path := range w.files {
+		var size float64
+		if fi, err := os.Stat(path); err == nil {
+			size = float64(fi.Size())
+		}
+		ch <- prometheus.MustNewConstMetric(w.desc, prometheus.GaugeValue, size, db)
 	}
 }
 

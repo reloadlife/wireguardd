@@ -128,12 +128,6 @@ func (s *Store) Optimize() {
 	}
 }
 
-// CheckpointWAL flushes the write-ahead log into the state DB file (TRUNCATE).
-func (s *Store) CheckpointWAL() error {
-	_, err := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
-	return err
-}
-
 // IncrementalVacuum reclaims free pages on the state DB.
 func (s *Store) IncrementalVacuum(pages int) {
 	if pages < 0 {
