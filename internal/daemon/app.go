@@ -146,6 +146,9 @@ func (a *App) Run(ctx context.Context) error {
 
 	go rec.Loop(ctx, a.cfg.ReconcileInterval())
 
+	collector.WatchWAL(store.WALFiles())
+	go a.maintainWAL(ctx, store, collector)
+
 	var servers []*http.Server
 	errCh := make(chan error, 4)
 

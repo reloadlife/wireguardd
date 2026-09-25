@@ -18,10 +18,11 @@ import (
 //	state.db       — interfaces, peers, events (source of truth)
 //	timeseries.db  — traffic_samples only (high-volume writes)
 type Store struct {
-	db     *sql.DB // state
-	ts     *sql.DB // timeseries
-	memory bool
-	tsPath string
+	db        *sql.DB // state
+	ts        *sql.DB // timeseries
+	memory    bool
+	statePath string
+	tsPath    string
 
 	mu        sync.Mutex
 	eventHook EventHook
@@ -113,10 +114,11 @@ func OpenWithOptions(opts OpenOptions) (*Store, error) {
 	_, _ = tsDB.Exec(`PRAGMA optimize`)
 
 	return &Store{
-		db:     stateDB,
-		ts:     tsDB,
-		memory: stateMem && tsMem,
-		tsPath: tsPath,
+		db:        stateDB,
+		ts:        tsDB,
+		memory:    stateMem && tsMem,
+		statePath: opts.Path,
+		tsPath:    tsPath,
 	}, nil
 }
 
