@@ -300,6 +300,7 @@ func (r *Reconciler) run(ctx context.Context) error {
 
 	// Purge old samples occasionally
 	_, _ = r.store.PurgeSamples(ctx, r.cfg.SampleRetention)
+	_, _ = r.store.PurgeEvents(ctx, eventRetention)
 	return nil
 }
 
@@ -567,6 +568,10 @@ func (r *Reconciler) Loop(ctx context.Context, interval time.Duration) {
 const (
 	rawSampleWindow = time.Hour
 	thinBucket      = 10 * time.Minute
+	// eventRetention bounds the events table, which had no retention at all and
+	// grows ~67k rows/day per node. ponytail: hardcoded like the two above — a
+	// month is far past what ListEvents shows and no knob has been asked for.
+	eventRetention = 30 * 24 * time.Hour
 )
 
 // compactLoop thins aged samples every thinBucket. It runs apart from RunOnce

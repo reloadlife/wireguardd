@@ -38,6 +38,35 @@ VALUES (?, ?, ?, ?, ?, ?, ?)`,
 	return nil
 }
 
+// PurgeEvents deletes events older than retention. Nothing reads events by
+// time — ListEvents is the only reader and it takes the newest by id — so aged
+// rows are pure growth: thr-respina reached 4.1M rows / 811 MB in two months.
+//
+// Deletes in batches like PurgeSamples so a first pass over a large backlog
+// cannot grow the WAL past one batch.
+func (s *Store) PurgeEvents(ctx context.Context, olderThan time.Duration) (int64, error) {
+	cutoff := time.Now().UTC().Add(-olderThan).Format(time.RFC3339Nano)
+	const batch = 5000
+	var total int64
+	for {
+		res, err := s.db.ExecContext(ctx, `
+DELETE FROM events WHERE id IN (
+  SELECT id FROM events WHERE ts < ? LIMIT ?
+)`, cutoff, batch)
+		if err != nil {
+			return total, fmt.Errorf("purge events: %w", err)
+		}
+		n, _ := res.RowsAffected()
+		total += n
+		if n < batch {
+			return total, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return total, err
+		}
+	}
+}
+
 // ListEvents returns the most recent events.
 func (s *Store) ListEvents(ctx context.Context, limit int) ([]Event, error) {
 	if limit <= 0 {
