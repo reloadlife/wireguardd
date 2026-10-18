@@ -12,7 +12,8 @@ import (
 // swift-mux same-port layout (one table for the whole host):
 //
 //	table inet wireguardd_mux
-//	  chain prerouting   nat hook, jumps to classify_<public> per map
+//	  chain prerouting   nat hook, jumps to classify_<public> per map, for
+//	                     packets addressed to this host only
 //	  chain classify_<p> stock-WireGuard-shaped first packet → return (stays on
 //	                     the plain WG device that owns <p>); anything else →
 //	                     redirect to the AWG device's listen port
@@ -29,6 +30,10 @@ import (
 //	response    92 B → udp length 100, 02 00 00 00
 //	cookie      64 B → udp length  72, 03 00 00 00
 //	transport ≥ 32 B, 16-aligned → udp length ≥ 40, length & 15 == 8, 04 00 00 00
+//
+// The jump is scoped to `fib daddr type local`: prerouting also sees traffic
+// the node forwards (VPN clients talking to some remote host on the same UDP
+// port), and redirecting that would hijack it into the local AWG device.
 //
 // Transport is matched on purpose: after a conntrack timeout a stock client's
 // next packet is usually transport, not initiation. Mirrors services/swift
@@ -83,7 +88,7 @@ func RenderMux(maps []MuxMap) string {
 	b.WriteString("  chain prerouting {\n")
 	b.WriteString("    type nat hook prerouting priority dstnat; policy accept;\n")
 	for _, m := range sorted {
-		fmt.Fprintf(&b, "    udp dport %d jump classify_%d\n", m.PublicPort, m.PublicPort)
+		fmt.Fprintf(&b, "    fib daddr type local udp dport %d jump classify_%d\n", m.PublicPort, m.PublicPort)
 	}
 	b.WriteString("  }\n")
 	for _, m := range sorted {

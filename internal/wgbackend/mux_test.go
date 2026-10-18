@@ -14,8 +14,8 @@ func TestRenderMuxGolden(t *testing.T) {
 	want := `table inet wireguardd_mux {
   chain prerouting {
     type nat hook prerouting priority dstnat; policy accept;
-    udp dport 51820 jump classify_51820
-    udp dport 51890 jump classify_51890
+    fib daddr type local udp dport 51820 jump classify_51820
+    fib daddr type local udp dport 51890 jump classify_51890
   }
   chain classify_51820 {
     udp length 156 @th,64,32 0x01000000 counter return comment "wg initiation"

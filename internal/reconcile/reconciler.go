@@ -621,6 +621,14 @@ type muxSyncer interface {
 func muxMaps(ifaces []db.Interface) ([]wgbackend.MuxMap, []string) {
 	var maps []wgbackend.MuxMap
 	var skipped []string
+	// A mux only ever shares the port of an enabled plain-WG interface on
+	// this host; any other mux_port would steer unrelated UDP into AWG.
+	wgPorts := map[int]bool{}
+	for _, iface := range ifaces {
+		if iface.Enabled && iface.Protocol != wgbackend.ProtocolAWG && iface.ListenPort > 0 {
+			wgPorts[iface.ListenPort] = true
+		}
+	}
 	for _, iface := range ifaces {
 		if iface.MuxPort <= 0 || !iface.Enabled || iface.ListenPort <= 0 {
 			continue
@@ -631,6 +639,10 @@ func muxMaps(ifaces []db.Interface) ([]wgbackend.MuxMap, []string) {
 		}
 		if decodeAmneziaJSON(iface.AmneziaJSON).IsNeutral() {
 			skipped = append(skipped, iface.Name+": neutral amnezia params")
+			continue
+		}
+		if !wgPorts[iface.MuxPort] {
+			skipped = append(skipped, fmt.Sprintf("%s: mux_port %d is not an enabled wg listen port", iface.Name, iface.MuxPort))
 			continue
 		}
 		maps = append(maps, wgbackend.MuxMap{PublicPort: iface.MuxPort, AWGPort: iface.ListenPort, Iface: iface.Name})
