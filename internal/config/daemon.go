@@ -54,6 +54,7 @@ type DaemonConfig struct {
 		// Optional binary overrides (empty → PATH: wireguard-go / amneziawg-go / awg).
 		WireGuardGo string `mapstructure:"wireguard_go"`
 		AmneziaWGGo string `mapstructure:"amneziawg_go"`
+		SwiftWG     string `mapstructure:"swiftwg"` // swift backend binary (default swiftwg)
 		AWGTool     string `mapstructure:"awg_tool"`
 	} `mapstructure:"wireguard"`
 	Log struct {

@@ -637,6 +637,16 @@ func muxMaps(ifaces []db.Interface) ([]wgbackend.MuxMap, []string) {
 			skipped = append(skipped, iface.Name+": not awg")
 			continue
 		}
+		if b, _ := wgbackend.NormalizeBackend(iface.Backend); b == wgbackend.BackendSwift {
+			// swift serves both protocols on its own port; mux_port is the
+			// legacy twin port, aliased wholesale. Never take a stock WG port.
+			if wgPorts[iface.MuxPort] {
+				skipped = append(skipped, fmt.Sprintf("%s: swift alias port %d is owned by a wg interface", iface.Name, iface.MuxPort))
+				continue
+			}
+			maps = append(maps, wgbackend.MuxMap{PublicPort: iface.MuxPort, AWGPort: iface.ListenPort, Iface: iface.Name, Alias: true})
+			continue
+		}
 		if decodeAmneziaJSON(iface.AmneziaJSON).IsNeutral() {
 			skipped = append(skipped, iface.Name+": neutral amnezia params")
 			continue

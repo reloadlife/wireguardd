@@ -84,6 +84,7 @@ func (a *App) Run(ctx context.Context) error {
 			DNSBackend:       a.cfg.WireGuard.DNSBackend,
 			WireGuardGo:      a.cfg.WireGuard.WireGuardGo,
 			AmneziaWGGo:      a.cfg.WireGuard.AmneziaWGGo,
+			SwiftWG:          a.cfg.WireGuard.SwiftWG,
 			AWGTool:          a.cfg.WireGuard.AWGTool,
 		})
 		if err != nil {

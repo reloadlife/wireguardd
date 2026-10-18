@@ -20,6 +20,10 @@ func (b *HostBackend) ensureLink(ctx context.Context, name, backend string) erro
 		// Wrong family: recreate under the correct type. Right family → keep.
 		if wantAmnezia && !gotAmnezia && kind != "" {
 			_ = b.deleteLinkExtended(ctx, name)
+		} else if backend == BackendKernel && kind == "" && fileExists(UserspaceSockDirAWG+"/"+name+".sock") {
+			// Leaving swift (or amneziawg-go): kernel WG has no userspace
+			// fallback, so a userspace AWG device here is a leftover to replace.
+			_ = b.deleteLinkExtended(ctx, name)
 		} else if !wantAmnezia && gotAmnezia {
 			// Plain WG desired but AWG present — leave (operator may have dual
 			// twins). Only create if missing.
@@ -44,6 +48,8 @@ func (b *HostBackend) ensureLink(ctx context.Context, name, backend string) erro
 		return nil
 	case BackendAmneziaGo:
 		return b.startUserspace(ctx, name, b.awgGoBin, UserspaceSockDirAWG)
+	case BackendSwift:
+		return b.startUserspace(ctx, name, b.swiftBin, UserspaceSockDirAWG)
 	default:
 		return fmt.Errorf("unknown backend %q", backend)
 	}

@@ -13,6 +13,7 @@ import (
 const (
 	DefaultWireGuardGo  = "wireguard-go"
 	DefaultAmneziaWGGo  = "amneziawg-go"
+	DefaultSwiftWG      = "swiftwg"
 	DefaultAWGTool      = "awg"
 	DefaultWGTool       = "wg"
 	ModuleWireGuard     = "wireguard"
@@ -30,6 +31,7 @@ type CapabilityProbe struct {
 	caps    BackendCaps
 	wgGo    string
 	awgGo   string
+	swiftWG string // set by NewHostBackend; empty → DefaultSwiftWG
 	awgTool string
 	wgTool  string
 }
@@ -40,6 +42,7 @@ type BackendCaps struct {
 	UserspaceWG      bool `json:"userspace_wg"` // wireguard-go binary present
 	KernelAmnezia    bool `json:"kernel_amnezia"`
 	UserspaceAmnezia bool `json:"userspace_amnezia"` // amneziawg-go binary present
+	Swift            bool `json:"swift"`             // swiftwg binary present
 	AWGTool          bool `json:"awg_tool"`          // awg CLI present
 }
 
@@ -78,10 +81,18 @@ func (p *CapabilityProbe) Caps(ctx context.Context) BackendCaps {
 		UserspaceWG:      p.binaryExists(ctx, p.wgGo),
 		KernelAmnezia:    moduleLoaded(ModuleAmneziaWG) || p.canIPLinkType(ctx, "amneziawg"),
 		UserspaceAmnezia: p.binaryExists(ctx, p.awgGo),
+		Swift:            p.binaryExists(ctx, p.swiftBin()),
 		AWGTool:          p.binaryExists(ctx, p.awgTool),
 	}
 	p.cached = true
 	return p.caps
+}
+
+func (p *CapabilityProbe) swiftBin() string {
+	if p.swiftWG == "" {
+		return DefaultSwiftWG
+	}
+	return p.swiftWG
 }
 
 // Invalidate forces a re-probe on next Caps call.
@@ -157,6 +168,12 @@ func (p *CapabilityProbe) ResolveBackend(ctx context.Context, protocol, requeste
 		case BackendAmneziaGo:
 			if !caps.UserspaceAmnezia {
 				return "", fmt.Errorf("amneziawg-go binary %q not found", p.awgGo)
+			}
+		case BackendSwift:
+			// Never fall back to another data plane: the device must serve
+			// stock WG and AWG on one port, which only swiftwg does.
+			if !caps.Swift {
+				return "", fmt.Errorf("swiftwg binary %q not found", p.swiftBin())
 			}
 		}
 		return req, nil

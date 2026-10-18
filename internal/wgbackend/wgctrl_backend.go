@@ -34,6 +34,7 @@ type HostBackend struct {
 	probe            *CapabilityProbe
 	wgGoBin          string
 	awgGoBin         string
+	swiftBin         string
 	awgTool          string
 	wgTool           string
 }
@@ -48,6 +49,7 @@ type HostOptions struct {
 	// Optional binary overrides (empty → PATH defaults).
 	WireGuardGo string
 	AmneziaWGGo string
+	SwiftWG     string
 	AWGTool     string
 	WGTool      string
 }
@@ -78,6 +80,10 @@ func NewHostBackend(opts HostOptions) (*HostBackend, error) {
 	if awgGo == "" {
 		awgGo = DefaultAmneziaWGGo
 	}
+	swiftBin := opts.SwiftWG
+	if swiftBin == "" {
+		swiftBin = DefaultSwiftWG
+	}
 	awgTool := opts.AWGTool
 	if awgTool == "" {
 		awgTool = DefaultAWGTool
@@ -86,6 +92,8 @@ func NewHostBackend(opts HostOptions) (*HostBackend, error) {
 	if wgTool == "" {
 		wgTool = DefaultWGTool
 	}
+	probe := NewCapabilityProbe(r, wgGo, awgGo, awgTool)
+	probe.swiftWG = swiftBin
 	return &HostBackend{
 		client:           client,
 		runner:           r,
@@ -97,9 +105,10 @@ func NewHostBackend(opts HostOptions) (*HostBackend, error) {
 		dns:              newDNSState(),
 		bandwidthBackend: bw,
 		dnsBackend:       dns,
-		probe:            NewCapabilityProbe(r, wgGo, awgGo, awgTool),
+		probe:            probe,
 		wgGoBin:          wgGo,
 		awgGoBin:         awgGo,
+		swiftBin:         swiftBin,
 		awgTool:          awgTool,
 		wgTool:           wgTool,
 	}, nil
@@ -304,6 +313,12 @@ func (b *HostBackend) EnsureInterface(ctx context.Context, desired DesiredInterf
 			if err3 := b.setAmneziaParams(ctx, desired.Name, desired.Amnezia); err3 != nil {
 				return fmt.Errorf("amnezia params via %s: %w", tool, err3)
 			}
+		}
+	}
+
+	if resolved == BackendSwift {
+		if err := b.setSwiftAllowClean(ctx, desired.Name, desired.Amnezia); err != nil {
+			return err
 		}
 	}
 

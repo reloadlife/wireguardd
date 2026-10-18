@@ -22,7 +22,7 @@ type Interface struct {
 	DefaultKeepalive int      `json:"default_keepalive"`
 	PublicEndpoint   string   `json:"public_endpoint,omitempty"`
 	Enabled          bool     `json:"enabled"`
-	// Backend: auto | kernel | userspace | amnezia_kernel | amnezia_go
+	// Backend: auto | kernel | userspace | amnezia_kernel | amnezia_go | swift
 	Backend string `json:"backend,omitempty"`
 	// Protocol: wg | awg
 	Protocol string `json:"protocol,omitempty"`

@@ -28,3 +28,20 @@ func TestMuxMaps(t *testing.T) {
 		t.Fatalf("skipped = %v", skipped)
 	}
 }
+
+func TestMuxMapsSwiftAlias(t *testing.T) {
+	noisy := `{"s1":20,"s2":40,"h1":"123","h2":"456","h3":"789","h4":"1011"}`
+	ifaces := []db.Interface{
+		{Name: "wg0", Protocol: "wg", ListenPort: 51820, Enabled: true},
+		// Neutral swift device still aliases: it is not classified.
+		{Name: "swift0", Protocol: "awg", Backend: "swift", ListenPort: 50300, MuxPort: 50310, Enabled: true, AmneziaJSON: `{"h1":"1","h2":"2","h3":"3","h4":"4"}`},
+		{Name: "swift-bad", Protocol: "awg", Backend: "swift", ListenPort: 50400, MuxPort: 51820, Enabled: true, AmneziaJSON: noisy},
+	}
+	maps, skipped := muxMaps(ifaces)
+	if len(maps) != 1 || !maps[0].Alias || maps[0].PublicPort != 50310 || maps[0].AWGPort != 50300 {
+		t.Fatalf("maps = %+v", maps)
+	}
+	if len(skipped) != 1 {
+		t.Fatalf("skipped = %v", skipped)
+	}
+}

@@ -72,6 +72,22 @@ func (b *HostBackend) setAmneziaParams(ctx context.Context, iface string, p Amne
 	return fmt.Errorf("cannot apply amnezia params on %s: install awg tools or amneziawg-go", iface)
 }
 
+// setSwiftAllowClean makes a swiftwg device also accept stock WireGuard next
+// to its AWG profile, so one port serves both. Neutral params already are
+// stock WireGuard on the wire, and swiftwg rejects allow_clean for them
+// ("allow_clean conflicts with profile 0"), so it is left off there.
+// Re-sending it is a no-op for live sessions.
+func (b *HostBackend) setSwiftAllowClean(ctx context.Context, iface string, p AmneziaParams) error {
+	if p.IsNeutral() {
+		return nil
+	}
+	sock := filepath.Join(UserspaceSockDirAWG, iface+".sock")
+	if err := writeUAPI(ctx, sock, "allow_clean=true\n"); err != nil {
+		return fmt.Errorf("swift allow_clean on %s: %w", iface, err)
+	}
+	return nil
+}
+
 // writeUAPI sends a set operation to a WireGuard userspace control socket.
 // Protocol: connect unix, write "set=1\n" + body + "\n", read "errno=N\n".
 func writeUAPI(ctx context.Context, sockPath, body string) error {

@@ -6,6 +6,20 @@ import (
 	"testing"
 )
 
+func TestRenderMuxSwiftAlias(t *testing.T) {
+	got := RenderMux([]MuxMap{{PublicPort: 50310, AWGPort: 50300, Iface: "wg-owire-in", Alias: true}})
+	want := `table inet wireguardd_mux {
+  chain prerouting {
+    type nat hook prerouting priority dstnat; policy accept;
+    fib daddr type local udp dport 50310 counter redirect to :50300 comment "swift alias wg_owire_in"
+  }
+}
+`
+	if got != want {
+		t.Fatalf("render:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestRenderMuxGolden(t *testing.T) {
 	got := RenderMux([]MuxMap{
 		{PublicPort: 51890, AWGPort: 51900, Iface: "awg-het"},

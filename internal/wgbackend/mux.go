@@ -47,6 +47,10 @@ type MuxMap struct {
 	AWGPort    int
 	// Iface is the AWG interface name (rule comment only).
 	Iface string
+	// Alias redirects every flow on PublicPort, unclassified. Used for a
+	// swift device, which serves stock WG and AWG itself: its old PORT+10
+	// keeps working for configs issued before the cutover.
+	Alias bool
 }
 
 // ValidateMuxMaps rejects bad ports and overlaps between maps.
@@ -88,10 +92,17 @@ func RenderMux(maps []MuxMap) string {
 	b.WriteString("  chain prerouting {\n")
 	b.WriteString("    type nat hook prerouting priority dstnat; policy accept;\n")
 	for _, m := range sorted {
+		if m.Alias {
+			fmt.Fprintf(&b, "    fib daddr type local udp dport %d counter redirect to :%d comment %q\n", m.PublicPort, m.AWGPort, "swift alias "+sanitizeNFTIdent(m.Iface))
+			continue
+		}
 		fmt.Fprintf(&b, "    fib daddr type local udp dport %d jump classify_%d\n", m.PublicPort, m.PublicPort)
 	}
 	b.WriteString("  }\n")
 	for _, m := range sorted {
+		if m.Alias {
+			continue
+		}
 		p := m.PublicPort
 		fmt.Fprintf(&b, "  chain classify_%d {\n", p)
 		b.WriteString("    udp length 156 @th,64,32 0x01000000 counter return comment \"wg initiation\"\n")

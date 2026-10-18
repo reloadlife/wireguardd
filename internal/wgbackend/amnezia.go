@@ -16,6 +16,10 @@ const (
 	BackendUserspace     = "userspace"      // wireguard-go
 	BackendAmneziaKernel = "amnezia_kernel" // amneziawg.ko       (ip link type amneziawg)
 	BackendAmneziaGo     = "amnezia_go"     // amneziawg-go
+	// BackendSwift runs swiftwg (owire's swift-go, an amneziawg-go fork): one
+	// userspace device serves stock WireGuard and the AWG profile on one port
+	// (allow_clean). Same UAPI socket dir and CLI as amneziawg-go.
+	BackendSwift = "swift"
 )
 
 // Protocol flavors.
@@ -86,7 +90,7 @@ func NormalizeBackend(s string) (string, error) {
 		return BackendAuto, nil
 	}
 	switch s {
-	case BackendAuto, BackendKernel, BackendUserspace, BackendAmneziaKernel, BackendAmneziaGo:
+	case BackendAuto, BackendKernel, BackendUserspace, BackendAmneziaKernel, BackendAmneziaGo, BackendSwift:
 		return s, nil
 	// Friendly aliases
 	case "wg", "wireguard", "wireguard-kernel":
@@ -97,8 +101,10 @@ func NormalizeBackend(s string) (string, error) {
 		return BackendAmneziaKernel, nil
 	case "amnezia-go", "amneziawg-go", "awg-go":
 		return BackendAmneziaGo, nil
+	case "swiftwg", "swift-go":
+		return BackendSwift, nil
 	default:
-		return "", fmt.Errorf("invalid backend %q (want auto|kernel|userspace|amnezia_kernel|amnezia_go)", s)
+		return "", fmt.Errorf("invalid backend %q (want auto|kernel|userspace|amnezia_kernel|amnezia_go|swift)", s)
 	}
 }
 
@@ -121,13 +127,13 @@ func NormalizeProtocol(s string) (string, error) {
 // IsAmneziaBackend reports whether backend speaks AmneziaWG.
 func IsAmneziaBackend(backend string) bool {
 	b, _ := NormalizeBackend(backend)
-	return b == BackendAmneziaKernel || b == BackendAmneziaGo
+	return b == BackendAmneziaKernel || b == BackendAmneziaGo || b == BackendSwift
 }
 
 // IsUserspaceBackend reports go implementations.
 func IsUserspaceBackend(backend string) bool {
 	b, _ := NormalizeBackend(backend)
-	return b == BackendUserspace || b == BackendAmneziaGo
+	return b == BackendUserspace || b == BackendAmneziaGo || b == BackendSwift
 }
 
 // DefaultNoisePreset generates a non-neutral Amnezia param set suitable for DPI evasion.
