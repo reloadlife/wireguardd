@@ -18,6 +18,7 @@ type MockBackend struct {
 	RouteTables map[string]string                 // iface -> table mode/id
 	RouteCounts map[string]int                    // iface -> allowed-ip route count
 	DNSApplied  map[string]DNSConfig              // iface -> last SyncDNS
+	MuxMaps     []MuxMap                          // last SyncMux
 	// FailNext if set causes the next mutating call to fail.
 	FailNext error
 }
@@ -307,4 +308,15 @@ func (m *MockBackend) SetPeerTraffic(iface, pubkey string, rx, tx int64) {
 			return
 		}
 	}
+}
+
+// SyncMux records the desired swift-mux maps.
+func (m *MockBackend) SyncMux(_ context.Context, maps []MuxMap) error {
+	if err := ValidateMuxMaps(maps); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.MuxMaps = append([]MuxMap(nil), maps...)
+	return nil
 }

@@ -14,7 +14,7 @@ var ErrNotFound = errors.New("not found")
 const ifaceSelect = `
 SELECT id, name, private_key, public_key, listen_port, fwmark, mtu, table_mode, table_id,
        dns, addresses, pre_up, post_up, pre_down, post_down, default_keepalive, public_endpoint,
-       enabled, backend, protocol, amnezia_json, pair_name, created_at, updated_at
+       enabled, backend, protocol, amnezia_json, pair_name, mux_port, created_at, updated_at
 FROM interfaces`
 
 // CreateInterface inserts a new interface.
@@ -47,13 +47,13 @@ func (s *Store) CreateInterface(ctx context.Context, iface *Interface) error {
 INSERT INTO interfaces (
   name, private_key, public_key, listen_port, fwmark, mtu, table_mode, table_id,
   dns, addresses, pre_up, post_up, pre_down, post_down, default_keepalive, public_endpoint, enabled,
-  backend, protocol, amnezia_json, pair_name,
+  backend, protocol, amnezia_json, pair_name, mux_port,
   created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		iface.Name, iface.PrivateKey, iface.PublicKey, iface.ListenPort, iface.FwMark, iface.MTU,
 		iface.TableMode, tableID, encodeJSONList(iface.DNS), encodeJSONList(iface.Addresses),
 		iface.PreUp, iface.PostUp, iface.PreDown, iface.PostDown, iface.DefaultKeepalive,
-		iface.PublicEndpoint, enabled, iface.Backend, iface.Protocol, iface.AmneziaJSON, iface.PairName,
+		iface.PublicEndpoint, enabled, iface.Backend, iface.Protocol, iface.AmneziaJSON, iface.PairName, iface.MuxPort,
 		now, now,
 	)
 	if err != nil {
@@ -120,12 +120,12 @@ func (s *Store) UpdateInterface(ctx context.Context, iface *Interface) error {
 UPDATE interfaces SET
   private_key=?, public_key=?, listen_port=?, fwmark=?, mtu=?, table_mode=?, table_id=?,
   dns=?, addresses=?, pre_up=?, post_up=?, pre_down=?, post_down=?, default_keepalive=?,
-  public_endpoint=?, enabled=?, backend=?, protocol=?, amnezia_json=?, pair_name=?, updated_at=?
+  public_endpoint=?, enabled=?, backend=?, protocol=?, amnezia_json=?, pair_name=?, mux_port=?, updated_at=?
 WHERE id=?`,
 		iface.PrivateKey, iface.PublicKey, iface.ListenPort, iface.FwMark, iface.MTU,
 		iface.TableMode, tableID, encodeJSONList(iface.DNS), encodeJSONList(iface.Addresses),
 		iface.PreUp, iface.PostUp, iface.PreDown, iface.PostDown, iface.DefaultKeepalive,
-		iface.PublicEndpoint, enabled, iface.Backend, iface.Protocol, iface.AmneziaJSON, iface.PairName,
+		iface.PublicEndpoint, enabled, iface.Backend, iface.Protocol, iface.AmneziaJSON, iface.PairName, iface.MuxPort,
 		now, iface.ID,
 	)
 	if err != nil {
@@ -204,13 +204,13 @@ func (s *Store) ImportInterface(ctx context.Context, iface *Interface, peers []P
 INSERT INTO interfaces (
   name, private_key, public_key, listen_port, fwmark, mtu, table_mode, table_id,
   dns, addresses, pre_up, post_up, pre_down, post_down, default_keepalive, public_endpoint, enabled,
-  backend, protocol, amnezia_json, pair_name,
+  backend, protocol, amnezia_json, pair_name, mux_port,
   created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				iface.Name, iface.PrivateKey, iface.PublicKey, iface.ListenPort, iface.FwMark, iface.MTU,
 				iface.TableMode, tableID, encodeJSONList(iface.DNS), encodeJSONList(iface.Addresses),
 				iface.PreUp, iface.PostUp, iface.PreDown, iface.PostDown, iface.DefaultKeepalive,
-				iface.PublicEndpoint, enabled, iface.Backend, iface.Protocol, iface.AmneziaJSON, iface.PairName,
+				iface.PublicEndpoint, enabled, iface.Backend, iface.Protocol, iface.AmneziaJSON, iface.PairName, iface.MuxPort,
 				now, now,
 			)
 			if err != nil {
@@ -237,12 +237,12 @@ INSERT INTO interfaces (
 UPDATE interfaces SET
   private_key=?, public_key=?, listen_port=?, fwmark=?, mtu=?, table_mode=?, table_id=?,
   dns=?, addresses=?, pre_up=?, post_up=?, pre_down=?, post_down=?, default_keepalive=?,
-  public_endpoint=?, enabled=?, backend=?, protocol=?, amnezia_json=?, pair_name=?, updated_at=?
+  public_endpoint=?, enabled=?, backend=?, protocol=?, amnezia_json=?, pair_name=?, mux_port=?, updated_at=?
 WHERE id=?`,
 				iface.PrivateKey, iface.PublicKey, iface.ListenPort, iface.FwMark, iface.MTU,
 				iface.TableMode, tableID, encodeJSONList(iface.DNS), encodeJSONList(iface.Addresses),
 				iface.PreUp, iface.PostUp, iface.PreDown, iface.PostDown, iface.DefaultKeepalive,
-				iface.PublicEndpoint, enabled, iface.Backend, iface.Protocol, iface.AmneziaJSON, iface.PairName,
+				iface.PublicEndpoint, enabled, iface.Backend, iface.Protocol, iface.AmneziaJSON, iface.PairName, iface.MuxPort,
 				now, iface.ID,
 			)
 			if err != nil {
@@ -327,7 +327,7 @@ func scanInterface(row scannable) (*Interface, error) {
 		&iface.ID, &iface.Name, &iface.PrivateKey, &iface.PublicKey, &iface.ListenPort,
 		&iface.FwMark, &iface.MTU, &iface.TableMode, &tableID, &dns, &addrs,
 		&iface.PreUp, &iface.PostUp, &iface.PreDown, &iface.PostDown, &iface.DefaultKeepalive,
-		&iface.PublicEndpoint, &enabled, &iface.Backend, &iface.Protocol, &iface.AmneziaJSON, &iface.PairName,
+		&iface.PublicEndpoint, &enabled, &iface.Backend, &iface.Protocol, &iface.AmneziaJSON, &iface.PairName, &iface.MuxPort,
 		&created, &updated,
 	)
 	if errors.Is(err, sql.ErrNoRows) {

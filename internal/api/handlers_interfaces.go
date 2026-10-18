@@ -184,6 +184,11 @@ func (s *Server) handleCreateInterface(w http.ResponseWriter, r *http.Request) {
 		Backend:          backend,
 		Protocol:         protocol,
 		AmneziaJSON:      amneziaJSON,
+		MuxPort:          req.MuxPort,
+	}
+	if err := validateMuxPort(protocol, req.ListenPort, req.MuxPort); err != nil {
+		writeError(w, http.StatusBadRequest, "validation", err.Error())
+		return
 	}
 
 	// Default dual pair: plain WG on PORT + AWG on PORT+10.
@@ -259,6 +264,13 @@ func (s *Server) handleCreateInterface(w http.ResponseWriter, r *http.Request) {
 			AmneziaJSON:      encodeAmnezia(awgParams),
 			PairName:         iface.Name,
 		}
+		if req.SamePort {
+			if req.NeutralAWG {
+				writeError(w, http.StatusBadRequest, "validation", "same_port needs non-neutral awg params (neutral AWG is stock WireGuard on the wire)")
+				return
+			}
+			awgIface.MuxPort = req.ListenPort
+		}
 		if err := s.store.CreateInterface(r.Context(), awgIface); err != nil {
 			_ = s.store.DeleteInterface(r.Context(), iface.Name)
 			writeError(w, http.StatusConflict, "create_failed", "awg twin: "+err.Error())
@@ -281,6 +293,24 @@ func (s *Server) handleCreateInterface(w http.ResponseWriter, r *http.Request) {
 	_ = s.store.AddEvent(r.Context(), "info", "audit", iface.Name, "", "interface created", "{}")
 	_ = s.ForceReconcile(r.Context())
 	writeJSON(w, http.StatusCreated, s.toAPIInterface(r.Context(), iface, true))
+}
+
+// validateMuxPort checks a swift-mux public port: AWG interfaces only, a real
+// UDP port, and not the interface's own listen port (that one needs no mux).
+func validateMuxPort(protocol string, listenPort, muxPort int) error {
+	if muxPort == 0 {
+		return nil
+	}
+	if protocol != wgbackend.ProtocolAWG {
+		return fmt.Errorf("mux_port requires protocol=awg")
+	}
+	if muxPort < 1 || muxPort > 65535 {
+		return fmt.Errorf("mux_port %d out of range", muxPort)
+	}
+	if muxPort == listenPort {
+		return fmt.Errorf("mux_port must differ from listen_port %d", listenPort)
+	}
+	return nil
 }
 
 func splitHostPort(ep string) (host string, port int, err error) {
@@ -418,6 +448,13 @@ func (s *Server) handleUpdateInterface(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.PairName != nil {
 		iface.PairName = *req.PairName
+	}
+	if req.MuxPort != nil {
+		iface.MuxPort = *req.MuxPort
+	}
+	if err := validateMuxPort(iface.Protocol, iface.ListenPort, iface.MuxPort); err != nil {
+		writeError(w, http.StatusBadRequest, "validation", err.Error())
+		return
 	}
 	if err := s.store.UpdateInterface(r.Context(), iface); err != nil {
 		writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
@@ -763,7 +800,7 @@ func (s *Server) toAPIInterface(ctx context.Context, iface *db.Interface, reveal
 		RxBytes: rx, TxBytes: tx, RxBps: rxBps, TxBps: txBps,
 		Backend: iface.Backend, ResolvedBackend: resolved,
 		Protocol: iface.Protocol, Amnezia: decodeAmnezia(iface.AmneziaJSON),
-		PairName:  iface.PairName,
+		PairName: iface.PairName, MuxPort: iface.MuxPort,
 		CreatedAt: iface.CreatedAt, UpdatedAt: iface.UpdatedAt,
 	}
 	if s.cfg.WireGuard.AllowHooks {

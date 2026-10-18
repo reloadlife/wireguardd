@@ -262,6 +262,8 @@ func (r *Reconciler) run(ctx context.Context) error {
 		}
 	}
 
+	r.syncMux(ctx, ifaces)
+
 	// Remove previously managed interfaces that are no longer desired.
 	// Never touch host-managed mesh* even if it somehow entered hookState.
 	for name := range r.hookState {
@@ -606,4 +608,46 @@ func (r *Reconciler) compactLoop(ctx context.Context) {
 func decodeAmneziaJSON(s string) wgbackend.AmneziaParams {
 	// local import-free decode via encoding/json in this file — see amnezia_decode.go
 	return decodeAmneziaJSONImpl(s)
+}
+
+// muxSyncer is implemented by backends that can drive the swift-mux nft table.
+type muxSyncer interface {
+	SyncMux(ctx context.Context, maps []wgbackend.MuxMap) error
+}
+
+// muxMaps returns the swift-mux maps for enabled AWG interfaces with a
+// mux_port. Neutral AWG params are skipped: they are stock WireGuard on the
+// wire, so the classifier would keep them on the plain WG twin.
+func muxMaps(ifaces []db.Interface) ([]wgbackend.MuxMap, []string) {
+	var maps []wgbackend.MuxMap
+	var skipped []string
+	for _, iface := range ifaces {
+		if iface.MuxPort <= 0 || !iface.Enabled || iface.ListenPort <= 0 {
+			continue
+		}
+		if iface.Protocol != wgbackend.ProtocolAWG {
+			skipped = append(skipped, iface.Name+": not awg")
+			continue
+		}
+		if decodeAmneziaJSON(iface.AmneziaJSON).IsNeutral() {
+			skipped = append(skipped, iface.Name+": neutral amnezia params")
+			continue
+		}
+		maps = append(maps, wgbackend.MuxMap{PublicPort: iface.MuxPort, AWGPort: iface.ListenPort, Iface: iface.Name})
+	}
+	return maps, skipped
+}
+
+func (r *Reconciler) syncMux(ctx context.Context, ifaces []db.Interface) {
+	ms, ok := r.backend.(muxSyncer)
+	if !ok {
+		return
+	}
+	maps, skipped := muxMaps(ifaces)
+	for _, s := range skipped {
+		r.log.Warn("mux skip", "reason", s)
+	}
+	if err := ms.SyncMux(ctx, maps); err != nil {
+		r.log.Error("mux sync", "err", err)
+	}
 }

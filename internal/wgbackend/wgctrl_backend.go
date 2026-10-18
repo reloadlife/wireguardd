@@ -30,6 +30,7 @@ type HostBackend struct {
 	nft              *nftState
 	routes           *routeState
 	dns              *dnsState
+	mux              muxState
 	probe            *CapabilityProbe
 	wgGoBin          string
 	awgGoBin         string

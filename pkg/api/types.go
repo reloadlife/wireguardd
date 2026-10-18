@@ -78,6 +78,13 @@ type InterfaceCreateRequest struct {
 	AWGAmnezia *AmneziaParams `json:"awg_amnezia,omitempty"`
 	// NeutralAWG forces H=1..4 S=0 dual-compat mode on the AWG twin.
 	NeutralAWG bool `json:"neutral_awg,omitempty"`
+	// MuxPort (protocol=awg): also serve this interface on public UDP MuxPort via
+	// the swift-mux nft table — stock-WireGuard-shaped flows stay on whatever
+	// owns MuxPort (the plain WG twin), everything else is redirected here.
+	MuxPort int `json:"mux_port,omitempty"`
+	// SamePort (with create_awg_pair) sets the twin's MuxPort to listen_port so
+	// AWG clients can use the primary port as well as listen_port+10.
+	SamePort bool `json:"same_port,omitempty"`
 }
 
 // InterfaceUpdateRequest patches an interface.
@@ -101,6 +108,7 @@ type InterfaceUpdateRequest struct {
 	Protocol         *string        `json:"protocol,omitempty"`
 	Amnezia          *AmneziaParams `json:"amnezia,omitempty"`
 	PairName         *string        `json:"pair_name,omitempty"`
+	MuxPort          *int           `json:"mux_port,omitempty"`
 }
 
 // Interface is the API representation of an interface.
@@ -138,7 +146,9 @@ type Interface struct {
 	// Amnezia params when protocol=awg (or amnezia backend).
 	Amnezia *AmneziaParams `json:"amnezia,omitempty"`
 	// PairName is the linked twin interface (WG ↔ AWG).
-	PairName  string    `json:"pair_name,omitempty"`
+	PairName string `json:"pair_name,omitempty"`
+	// MuxPort is the public port this AWG interface also serves via swift-mux (0 = off).
+	MuxPort   int       `json:"mux_port,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
