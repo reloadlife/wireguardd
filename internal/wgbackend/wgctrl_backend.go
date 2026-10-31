@@ -30,6 +30,8 @@ type HostBackend struct {
 	nft              *nftState
 	routes           *routeState
 	dns              *dnsState
+	blackholes       map[string]struct{} // listing cache, see blackholeRouteMissing
+	blackholesAt     time.Time
 	mux              muxState
 	probe            *CapabilityProbe
 	wgGoBin          string
